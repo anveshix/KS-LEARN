@@ -1,0 +1,2 @@
+// The app mark. maskable=true fills the square so Android can crop it to any shape.
+export const ICON = (maskable = false) => `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%"><rect width="512" height="512" rx="${maskable ? 0 : 112}" fill="#2b55e6"/><text x="256" y="${maskable ? 306 : 318}" font-family="Arial,Helvetica,sans-serif" font-weight="700" font-size="${maskable ? 150 : 200}" fill="#fff" text-anchor="middle">KS</text></svg>`;
