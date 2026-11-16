@@ -1,0 +1,22 @@
+{
+  "name": "ks-learn",
+  "version": "2.1.0",
+  "private": true,
+  "type": "module",
+  "description": "KS-LEARN: an offline-first personal mastery-learning app (Hindi/English), class 3 to 9",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "audit:content": "node tools/audit.mjs 500",
+    "verify": "node tools/verify-dist.mjs",
+    "check": "npm run audit:content && npm test && npm run build && npm run verify",
+    "e2e": "node tools/e2e.mjs",
+    "validate-pack": "node tools/validate-pack.mjs"
+  },
+  "devDependencies": {
+    "esbuild": "0.25.12"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
