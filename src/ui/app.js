@@ -6,6 +6,7 @@ import { ensureState, buildMission, classNow, academicYear, strandProgress, dueR
 import { createSession, streak } from '../core/session.js';
 import { load, save, freshState, exportText, importText, keepUndo, readUndo, STORE_KEY, MAX_IMPORT_BYTES } from '../core/store.js';
 import { makePin, verifyPin, needsUpgrade, validPin, recordAttempt, lockedFor } from '../core/pin.js';
+import { LEVELS, BADGES, levelInfo, startReward, settle, isEmpty } from '../core/rewards.js';
 import { weekSummary, topMistakes, needsHelp, roadmap, skillStatus } from '../core/insights.js';
 import { packToSkills, validatePack } from '../core/packs.js';
 import { fmt } from '../content/kit.js';
@@ -119,6 +120,7 @@ function header() {
   return h('header', { class: 'top' },
     h('div', { class: 'brand' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, Array.from(p.name)[0].toUpperCase()), h('div', {}, h('b', {}, p.name), h('small', {}, `${u(T.classN)} ${cls}`))),
     h('div', { class: 'pills' },
+      h('span', { class: 'pill-stat', title: `${u(T.level)} ${levelInfo(state.stars || 0).index + 1}` }, h('span', { class: 'ico', 'aria-hidden': 'true' }, levelInfo(state.stars || 0).level.icon)),
       h('span', { class: 'pill-stat', title: u(T.streak) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, '🔥'), String(streak(state.days, today(), addDays))),
       h('span', { class: 'pill-stat', title: u(T.stars) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, '⭐'), String(state.stars || 0))));
 }
@@ -155,10 +157,55 @@ function viewSetup() {
   mount(h('main', { class: 'wrap' }, f, restoreCard()));
 }
 
+// ---------- rewards UI ----------
+function confetti(n = 46) {
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const wrap = h('div', { class: 'confetti', 'aria-hidden': 'true' });
+  const cols = ['#2b55e6', '#7b45d6', '#d9730b', '#148a5a', '#c2387a', '#e7b84a'];
+  for (let i = 0; i < n; i++) {
+    const p = h('i', {});
+    p.style.setProperty('--x', `${(Math.random() * 100).toFixed(1)}%`); p.style.setProperty('--dx', `${(Math.random() * 160 - 80).toFixed(0)}px`);
+    p.style.setProperty('--d', `${(1.6 + Math.random() * 1.6).toFixed(2)}s`); p.style.setProperty('--w', `${(Math.random() * .5).toFixed(2)}s`);
+    p.style.setProperty('--r', `${(Math.random() * 720 - 360).toFixed(0)}deg`); p.style.background = cols[i % cols.length];
+    wrap.append(p);
+  }
+  document.body.append(wrap); setTimeout(() => wrap.remove(), 3800);
+}
+// One list of "what you just earned", used on the finish screen and in the Home pop-up.
+function rewardLines(r) {
+  const out = [];
+  if (r.gold) out.push(h('p', { class: 'rw-line gold' }, h('span', { class: 'rw-ico' }, '🌟'), ` ${u(T.goldStar)} +${r.gold}`));
+  if (r.bonus) out.push(h('p', { class: 'rw-line' }, h('span', { class: 'rw-ico' }, '🎁'), ` ${u(T.missionBonus)} +${r.bonus}`));
+  for (const id of r.badges) { const b = BADGES.find(x => x.id === id); out.push(h('p', { class: 'rw-line' }, h('span', { class: 'rw-ico' }, b.icon), ` ${u(T.newBadge)}: `, h('b', {}, t(b.name)), h('span', { class: 'muted small' }, ` · ${t(b.desc)}`))); }
+  if (r.levelUp) { const L2 = LEVELS[r.levelUp.to]; out.push(h('div', { class: 'levelup' }, h('div', { class: 'lu-ico' }, L2.icon), h('h2', {}, u(T.levelUp)), h('p', {}, `${u(T.youAre)} `, h('b', {}, t(L2.name))))); }
+  return out;
+}
+function celebrate(r) {
+  const close = () => { sheet.remove(); };
+  const sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-label': u(T.rewards), onclick: e => { if (e.target === sheet) close(); } },
+    h('section', { class: 'card sheet-body celebrate' }, h('div', { class: 'eyebrow' }, u(T.awesome)), rewardLines(r), h('button', { class: 'btn primary big', id: 'cel-ok', onclick: close }, u(T.gotIt))));
+  document.body.append(sheet); confetti(); document.getElementById('cel-ok').focus();
+}
+function levelTile() {
+  const li = levelInfo(state.stars || 0);
+  return h('section', { class: 'card tile b-wide level-tile' },
+    h('div', { class: 'lv-row' }, h('div', { class: 'lv-ico', 'aria-hidden': 'true' }, li.level.icon),
+      h('div', { class: 'lv-main' }, h('div', { class: 'eyebrow' }, `${u(T.level)} ${li.index + 1}`), h('h2', {}, t(li.level.name)),
+        bar(li.frac), h('small', { class: 'muted' }, li.next ? `${li.toNext} ${u(T.toNext)} ${t(li.next.name)} ${li.next.icon}` : u(T.maxLevel)))));
+}
+function badgeShelf() {
+  const got = state.rw.badges, n = Object.keys(got).length;
+  return h('section', { class: 'card b-wide' }, h('div', { class: 'eyebrow' }, `${u(T.badges)} · ${n}/${BADGES.length} ${u(T.badgesEarned)}`),
+    h('div', { class: 'shelf' }, BADGES.map(b => h('div', { class: 'badge' + (got[b.id] ? ' on' : ''), title: `${t(b.name)}: ${t(b.desc)}`, role: 'img', 'aria-label': `${t(b.name)}${got[b.id] ? '' : ' (locked)'}` },
+      h('span', { class: 'b-ico' }, got[b.id] ? b.icon : '🔒'), h('small', {}, t(b.name))))));
+}
+const settleNow = (extra = {}) => settle(state, { day: today(), streakNow: streak(state.days, today(), addDays), ...extra });
+
 // ---------- home ----------
 function viewHome() {
   const p = state.profile, d = now(), day = today(), cls = classNow(p, d);
   ensureState(skills, state.skills, p, d);
+  const pending = settleNow(); if (!isEmpty(pending)) persist();
   const td = state.days[day] || { q: 0, c: 0, mq: 0, done: false };
   const remaining = Math.max(1, p.dailyQ - (td.mq || 0));
   const due = dueReviews(skills, state.skills, day).length;
@@ -185,7 +232,8 @@ function viewHome() {
   const tStars = h('section', { class: 'card tile b-half' }, h('div', { class: 'eyebrow' }, u(T.stars)), h('span', { class: 'big-ico', 'aria-hidden': 'true' }, '⭐'), h('div', { class: 'big-n' }, String(state.stars || 0)));
   mount(header(), h('main', { class: 'wrap' }, !storage.ok && h('p', { class: 'warn' }, u(T.storageWarn)), boot.recovered && h('p', { class: 'warn' }, u(T.recovered)),
     h('h1', { class: 'hello' }, `${u(T.hello)}, ${p.name}`),
-    h('div', { class: 'bento' }, mission, tStreak, tStars, td.done ? off : null, strands, test, td.done ? null : off)), nav('home'));
+    h('div', { class: 'bento' }, mission, levelTile(), tStreak, tStars, td.done ? off : null, strands, test, td.done ? null : off, badgeShelf())), nav('home'));
+  if (!isEmpty(pending)) celebrate(pending);
 }
 
 // ---------- sessions ----------
@@ -206,7 +254,11 @@ function startTest() {
   const picks = Array.from({ length: 15 }, (_, i) => pool[(i * 7 + Math.floor(Math.random() * pool.length)) % pool.length]);
   begin(createSession(app, picks.map(sk => ({ kind: 'skill', skill: sk.id })), { test: true }), 'test');
 }
-function begin(s, mode) { run = { s, mode, results: [] }; step(s.next()); }
+function begin(s, mode) {
+  run = { s, mode, results: [] };
+  if (mode !== 'test' && startReward(state, today())) { persist(); toast(`⭐ ${u(T.startBonus)}`, 2200); }
+  step(s.next());
+}
 
 function step(cur) {
   voice.stop();
@@ -313,12 +365,14 @@ function question(cur) {
   (input || card.querySelector('.opt')).focus({ preventScroll: true });
 }
 function finish() {
-  const st = run.s.finish(); persist();
+  const st = run.s.finish();
+  const rw = settleNow({ stats: st, completed: true }); persist();
   const rows = [h('div', { class: 'eyebrow' }, u(T.done)),
     h('div', { class: 'big-stats' },
       h('div', {}, h('b', {}, String(st.asked)), h('small', {}, u(T.answered))),
       h('div', {}, h('b', {}, String(st.correct)), h('small', {}, u(T.rightCount))),
-      h('div', {}, h('b', {}, `+${st.stars}`), h('small', {}, u(T.stars))))];
+      h('div', {}, h('b', {}, `+${st.stars + rw.gold + rw.bonus}`), h('small', {}, u(T.stars))))];
+  if (!isEmpty(rw)) rows.push(h('div', { class: 'rw-box' }, rewardLines(rw)));
   if (st.mastered.length) rows.push(h('h2', {}, u(T.newMastered)), h('ul', {}, [...new Set(st.mastered)].map(id => h('li', {}, t(byId[id].title)))));
   if (run.mode === 'test' && run.results.length) {
     rows.push(h('h2', {}, u(T.testReview)), h('ol', { class: 'review-list' }, run.results.map(r => h('li', { class: r.ok ? 'ok' : 'no' },
@@ -328,6 +382,7 @@ function finish() {
   rows.push(h('button', { class: 'btn primary big', onclick: () => go('home') }, u(T.backHome)));
   run = null;
   mount(h('main', { class: 'wrap narrow' }, h('section', { class: 'card done' }, rows)));
+  if (!isEmpty(rw) || st.mastered.length) confetti(rw.levelUp ? 80 : 40);
 }
 
 // ---------- skill map ----------

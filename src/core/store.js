@@ -3,12 +3,13 @@
 // Everything read from storage or from a backup file is untrusted: sanitize() rebuilds
 // the state field by field, so a damaged or hand-edited file cannot crash the app,
 // smuggle unexpected keys or make it loop over absurd sizes.
+import { BADGE_IDS, LEVELS, freshRw } from './rewards.js';
 export const STORE_KEY = 'kslearn.v2';
 export const VERSION = 2;
 export const MAX_IMPORT_BYTES = 3 * 1024 * 1024;
 const LIMITS = { log: 6000, days: 4000, asks: 60, packs: 20, skills: 3000 };
 
-export const freshState = () => ({ v: VERSION, profile: null, skills: {}, log: [], days: {}, stars: 0, asks: [], packs: [], lock: { f: 0, until: 0 } });
+export const freshState = () => ({ v: VERSION, profile: null, skills: {}, log: [], days: {}, stars: 0, rw: freshRw(0), asks: [], packs: [], lock: { f: 0, until: 0 } });
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/, SKILL_ID = /^[a-z]\.[a-z0-9_]{1,40}$/, WORD = /^[a-z0-9_]{1,40}$/;
 const STRANDS = ['m', 'e', 'h', 's', 'l', 'c', 'g'], LANGS = ['bi', 'hi', 'en'];
@@ -68,6 +69,13 @@ export function sanitize(raw) {
     st.days[d] = { q, c: int(v.c, 0, q, 0), ms: int(v.ms, 0, 864e5, 0), mq: int(v.mq, 0, q, v.done === true ? q : 0), done: v.done === true };
   }
   st.stars = int(raw.stars, 0, 1e9, 0);
+  // Rewards: older saves have none; their level counts as already celebrated.
+  st.rw = freshRw(st.stars);
+  if (obj(raw.rw)) {
+    if (obj(raw.rw.badges)) for (const id of BADGE_IDS) { const d = date(raw.rw.badges[id]); if (d) st.rw.badges[id] = d; }
+    st.rw.lvl = int(raw.rw.lvl, 0, LEVELS.length - 1, st.rw.lvl);
+    st.rw.bonusDay = date(raw.rw.bonusDay); st.rw.startDay = date(raw.rw.startDay); st.rw.gold = int(raw.rw.gold, 0, 1e6, 0);
+  }
   if (Array.isArray(raw.asks)) for (const a of raw.asks.slice(-LIMITS.asks)) if (obj(a) && date(a.d) && SKILL_ID.test(a.s)) st.asks.push({ d: a.d, s: a.s, q: str(a.q, 400), done: a.done === true });
   // Packs are only shape-checked here; the app re-validates each one against the skill graph before use.
   if (Array.isArray(raw.packs)) st.packs = raw.packs.filter(p => obj(p) && typeof p.id === 'string' && Array.isArray(p.skills)).slice(0, LIMITS.packs);

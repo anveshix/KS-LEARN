@@ -186,3 +186,22 @@ body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-even
 .view-in { animation: rise .35s both; }
 @media (max-width: 640px) { .b-half { grid-column: span 2; } .hero h2 { font-size: 1.8rem; } .pill-stat { padding: 6px 10px; } }
 @supports not (backdrop-filter: blur(1px)) { .card, .tabs, .pill-stat { background: var(--surface); } }
+
+/* ---------- Phase 2: rewards ---------- */
+.level-tile .lv-row { display: flex; gap: 16px; align-items: center; }
+.lv-ico { display: grid; place-items: center; flex: none; width: 64px; height: 64px; border-radius: 20px; font-size: 2rem; background: var(--grad); box-shadow: 0 6px 18px rgb(43 85 230 / .3); }
+.lv-main { flex: 1; min-width: 0; display: grid; gap: 6px; } .lv-main h2 { margin: 0; font-size: 1.4rem; }
+.lv-main .bar i { background: var(--grad); }
+.shelf { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 10px; }
+.badge { display: grid; justify-items: center; gap: 4px; text-align: center; padding: 10px 4px; border-radius: 16px; background: var(--bg); filter: grayscale(1); opacity: .55; }
+.badge.on { filter: none; opacity: 1; background: color-mix(in srgb, var(--g) 14%, var(--surface)); animation: pop .5s both; }
+.badge .b-ico { font-size: 1.7rem; line-height: 1; } .badge small { font-size: .72rem; line-height: 1.2; color: var(--muted); }
+@keyframes pop { 0% { transform: scale(.6); } 70% { transform: scale(1.12); } 100% { transform: none; } }
+.rw-box { display: grid; gap: 4px; padding: 10px 14px; margin: 6px 0 10px; border-radius: 16px; background: var(--warn-bg); animation: pop .5s both; }
+.rw-line { margin: 4px 0; font-weight: 600; } .rw-line.gold { font-size: 1.15rem; } .rw-ico { display: inline-block; font-size: 1.3rem; vertical-align: -2px; }
+.levelup { text-align: center; padding: 8px 0; } .levelup h2 { margin: 4px 0; font-size: 1.8rem; }
+.lu-ico { font-size: 3.6rem; line-height: 1; animation: pop .7s both; }
+.celebrate { text-align: left; } .celebrate .btn { margin-top: 12px; }
+.confetti { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 40; }
+.confetti i { position: absolute; top: -14px; left: var(--x); width: 9px; height: 14px; border-radius: 2px; opacity: 0; animation: fall var(--d) var(--w) ease-in forwards; }
+@keyframes fall { 0% { opacity: 1; transform: translate(0, 0) rotate(0); } 100% { opacity: .9; transform: translate(var(--dx), 105vh) rotate(var(--r)); } }

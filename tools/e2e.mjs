@@ -13,6 +13,7 @@ const b = await chromium.launch();
 const problems = [];
 async function open(ctx, url) {
   const p = await ctx.newPage();
+  await p.addLocatorHandler(p.locator('#cel-ok'), l => l.click()); // reward pop-up: the child taps OK
   p.on('pageerror', e => problems.push('pageerror: ' + e.message));
   p.on('console', m => { if (m.type() === 'error') problems.push('console: ' + m.text()); });
   p.on('request', r => { if (!/^(file|data|blob|http:\/\/127\.0\.0\.1)/.test(r.url())) problems.push('network: ' + r.url()); });
