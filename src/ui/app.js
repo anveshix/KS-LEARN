@@ -111,17 +111,18 @@ function bar(frac, cls = '') {
   return h('div', { class: 'bar ' + cls, role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(frac * 100)) }, h('i', { style: `width:${Math.max(0, Math.min(100, frac * 100)).toFixed(1)}%` }));
 }
 function nav(active) {
-  const item = (id, label) => h('a', { href: '#' + id, class: 'tab' + (active === id ? ' on' : ''), 'aria-current': active === id ? 'page' : false }, u(label));
-  return h('nav', { class: 'tabs' }, item('home', T.home), item('map', T.map), item('parent', T.parent));
+  const item = (id, label, ico) => h('a', { href: '#' + id, class: 'tab' + (active === id ? ' on' : ''), 'aria-current': active === id ? 'page' : false }, h('span', { class: 'ico', 'aria-hidden': 'true' }, ico), h('span', {}, u(label)));
+  return h('nav', { class: 'tabs', 'aria-label': 'Main' }, item('home', T.home, '🏠'), item('map', T.map, '🗺️'), item('parent', T.parent, '👨‍👩‍👧'));
 }
 function header() {
   const p = state.profile, cls = classNow(p, now());
   return h('header', { class: 'top' },
-    h('div', { class: 'brand' }, h('span', { class: 'logo', 'aria-hidden': 'true' }, 'KS'), h('div', {}, h('b', {}, p.name), h('small', {}, `${u(T.classN)} ${cls}`))),
-    h('div', { class: 'stats' },
-      h('span', { class: 'stat', title: u(T.streak) }, h('b', {}, String(streak(state.days, today(), addDays))), h('small', {}, u(T.streak))),
-      h('span', { class: 'stat', title: u(T.stars) }, h('b', {}, String(state.stars || 0)), h('small', {}, u(T.stars)))));
+    h('div', { class: 'brand' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, Array.from(p.name)[0].toUpperCase()), h('div', {}, h('b', {}, p.name), h('small', {}, `${u(T.classN)} ${cls}`))),
+    h('div', { class: 'pills' },
+      h('span', { class: 'pill-stat', title: u(T.streak) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, '🔥'), String(streak(state.days, today(), addDays))),
+      h('span', { class: 'pill-stat', title: u(T.stars) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, '⭐'), String(state.stars || 0))));
 }
+const ICON = { m: '➗', e: '🔤', h: 'अ', s: '🔬', l: '🧩', c: '💻', g: '🌏' };
 const offscreenToday = () => OFFSCREEN[Math.floor(now().getTime() / 864e5) % OFFSCREEN.length];
 
 // ---------- setup ----------
@@ -161,26 +162,30 @@ function viewHome() {
   const td = state.days[day] || { q: 0, c: 0, mq: 0, done: false };
   const remaining = Math.max(1, p.dailyQ - (td.mq || 0));
   const due = dueReviews(skills, state.skills, day).length;
-  const mission = h('section', { class: 'card mission' + (td.done ? ' complete' : '') },
+  const mission = h('section', { class: 'card mission hero b-hero' + (td.done ? ' complete' : '') },
     h('div', { class: 'eyebrow' }, u(T.todayMission)),
     td.done
       ? [h('h2', {}, u(T.missionDone)), h('p', {}, u(T.missionDoneNote))]
       : [h('h2', {}, `${remaining} ${u(T.questions)}`), h('p', { class: 'muted' }, `~${Math.max(3, Math.round(remaining * 0.75))} ${u(T.minutes)}${due ? ` · ${due} ${u(T.dueReviews)}` : ''}`),
-        h('button', { class: 'btn primary big', onclick: () => startMission() }, u(td.mq > 0 ? T.continueMission : T.startMission))]);
-  const strands = h('section', { class: 'card' }, h('div', { class: 'eyebrow' }, u(T.practise)),
+        h('button', { class: 'btn primary big pulse', onclick: () => startMission() }, u(td.mq > 0 ? T.continueMission : T.startMission))]);
+  const strands = h('section', { class: 'card b-wide' }, h('div', { class: 'eyebrow' }, u(T.practise)),
     h('div', { class: 'strands' }, enabledStrands().map(s => {
       const pr = strandProgress(skills, state.skills, s, cls);
       return h('button', { class: `strand s-${s}`, onclick: () => startPractice(s) },
-        h('span', { class: 'sname' }, strandName(s)),
+        h('span', { class: 'sico', 'aria-hidden': 'true' }, ICON[s] || '📘'), h('span', { class: 'sname' }, strandName(s)),
         bar(pr.classTotal ? pr.classMastered / pr.classTotal : 0),
         h('small', {}, `${pr.classMastered}/${pr.classTotal} ${u(T.thisClass)}${pr.ahead ? ` · +${pr.ahead} ${u(T.ahead)}` : ''}`));
     })));
   const masteredN = skills.filter(sk => state.skills[sk.id] && state.skills[sk.id].m).length;
-  const test = h('section', { class: 'card row' }, h('div', {}, h('div', { class: 'eyebrow' }, u(T.test)), h('p', { class: 'muted small' }, u(masteredN >= 5 ? T.testNote : T.testNeeds))),
+  const test = h('section', { class: 'card row b-half' }, h('div', {}, h('div', { class: 'eyebrow' }, u(T.test)), h('p', { class: 'muted small' }, u(masteredN >= 5 ? T.testNote : T.testNeeds))),
     h('button', { class: 'btn', disabled: masteredN < 5, onclick: () => startTest() }, u(T.start)));
-  const off = h('section', { class: 'card offscreen' }, h('div', { class: 'eyebrow' }, u(T.offscreen)), h('p', {}, t(offscreenToday())));
+  const off = h('section', { class: 'card offscreen b-half' }, h('div', { class: 'eyebrow' }, u(T.offscreen)), h('p', {}, t(offscreenToday())));
+  const sDays = streak(state.days, today(), addDays);
+  const tStreak = h('section', { class: 'card tile b-half' }, h('div', { class: 'eyebrow' }, u(T.streak)), h('span', { class: 'big-ico', 'aria-hidden': 'true' }, h('span', { class: 'flame' }, '🔥')), h('div', { class: 'big-n' }, String(sDays)));
+  const tStars = h('section', { class: 'card tile b-half' }, h('div', { class: 'eyebrow' }, u(T.stars)), h('span', { class: 'big-ico', 'aria-hidden': 'true' }, '⭐'), h('div', { class: 'big-n' }, String(state.stars || 0)));
   mount(header(), h('main', { class: 'wrap' }, !storage.ok && h('p', { class: 'warn' }, u(T.storageWarn)), boot.recovered && h('p', { class: 'warn' }, u(T.recovered)),
-    h('h1', { class: 'hello' }, `${u(T.hello)}, ${p.name}`), mission, td.done ? off : null, strands, test, td.done ? null : off), nav('home'));
+    h('h1', { class: 'hello' }, `${u(T.hello)}, ${p.name}`),
+    h('div', { class: 'bento' }, mission, tStreak, tStars, td.done ? off : null, strands, test, td.done ? null : off)), nav('home'));
 }
 
 // ---------- sessions ----------
