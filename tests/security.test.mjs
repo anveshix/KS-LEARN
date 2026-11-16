@@ -48,7 +48,7 @@ test('sanitize rebuilds state field by field and drops everything unexpected', (
   const st = sanitize(evil);
   assert.equal(st.profile.name.length, 20); assert.ok(!/[\u0000-\u001f]/.test(st.profile.name));
   assert.equal(st.profile.cls, 12); assert.equal(st.profile.lang, 'bi'); assert.equal(st.profile.dailyQ, 60);
-  assert.equal(st.profile.off.length, 6, 'at least one subject always stays on'); assert.equal(st.profile.admin, undefined);
+  assert.equal(st.profile.off.length, 7, 'at least one subject always stays on'); assert.equal(st.profile.admin, undefined);
   assert.deepEqual(Object.keys(st.skills).sort(), ['m.add3', 'm.ok']);
   assert.equal(Object.getPrototypeOf(st.skills), Object.prototype); assert.equal({}.m, undefined, 'no prototype pollution');
   const a = st.skills['m.add3'];

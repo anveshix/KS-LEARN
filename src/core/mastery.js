@@ -37,4 +37,5 @@ export function update(s, ok, guess, day, trap, ms) {
   if (!ok && s.bad >= P.stuck) { s.help = true; s.bad = 0; s.seen = false; ev.push('stuck'); }
   return ev;
 }
-export const guessRate = q => (q.kind === 'mcq' ? 1 / q.options.length : 0.02);
+const fact = n => (n <= 1 ? 1 : n * fact(n - 1));
+export const guessRate = q => (q.kind === 'mcq' ? 1 / q.options.length : q.kind === 'order' || q.kind === 'match' ? Math.max(0.02, 1 / fact(q.answer.length)) : 0.02);

@@ -2,7 +2,7 @@
 // and the day's mission. The class advances by itself every April (2026 -> 2030).
 import { newSkillState } from './mastery.js';
 
-export const STRANDS = ['m', 'e', 'h', 's', 'l', 'c', 'g'];
+export const STRANDS = ['m', 'e', 'h', 's', 'l', 'c', 'g', 't'];
 export const academicYear = d => (d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1);
 export const classNow = (profile, date) => Math.min(12, profile.cls + Math.max(0, academicYear(date) - profile.ay0));
 
@@ -39,7 +39,7 @@ export function buildMission(skills, st, profile, date, day) {
   const mixed = () => skills.filter(sk => on(sk.strand) && st[sk.id]?.m).sort((a, b) => (st[a.id].last || '').localeCompare(st[b.id].last || '') || a.id.localeCompare(b.id))
     .slice(0, Math.max(4, Math.round(total / 3))).flatMap((sk, k, a) => Array.from({ length: Math.ceil(total / a.length) }, () => ({ kind: 'review', skill: sk.id, mixed: true }))).slice(0, total);
   const lang = ['e', 'h'].filter(has);
-  const rot = ['l', 's', 'c', 'g'].filter(has);
+  const rot = ['l', 's', 'c', 'g', 't'].filter(has);
   const picks = [];
   if (has('m')) picks.push('m');
   if (lang.length) picks.push(lang[di % lang.length]);

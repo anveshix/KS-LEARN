@@ -6,10 +6,15 @@ import { ensureState, buildMission, classNow, academicYear, strandProgress, dueR
 import { createSession, streak } from '../core/session.js';
 import { load, save, freshState, exportText, importText, keepUndo, readUndo, STORE_KEY, MAX_IMPORT_BYTES } from '../core/store.js';
 import { makePin, verifyPin, needsUpgrade, validPin, recordAttempt, lockedFor } from '../core/pin.js';
+import { LEVELS, BADGES, levelInfo, startReward, comebackReward, settle, isEmpty } from '../core/rewards.js';
 import { weekSummary, topMistakes, needsHelp, roadmap, skillStatus } from '../core/insights.js';
 import { packToSkills, validatePack } from '../core/packs.js';
 import { fmt } from '../content/kit.js';
 import { T, OFFSCREEN } from './labels.js';
+import { h } from './dom.js';
+import { orderWidget, matchWidget } from './widgets.js';
+import { check } from '../core/check.js';
+import { hintFor, scaffoldFor, MAX_DEPTH, MSG } from '../core/guidance.js';
 
 // ---------- environment ----------
 const mem = {};
@@ -46,20 +51,6 @@ const M = () => (state.profile && state.profile.lang) || 'bi';
 const t = v => tx(v, M());
 const u = v => ui(v, M());
 
-// ---------- tiny DOM helper ----------
-function h(tag, props, ...kids) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(props || {})) {
-    if (v === false || v == null) continue;
-    if (k === 'class') el.className = v;
-    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
-    else if (k === 'text') el.textContent = v;
-    else if (k === 'style') el.style.cssText = v; // CSSOM, so a strict Content-Security-Policy needs no 'unsafe-inline'
-    else el.setAttribute(k, v === true ? '' : v);
-  }
-  for (const c of kids.flat(Infinity)) if (c != null && c !== false) el.append(c.nodeType ? c : document.createTextNode(String(c)));
-  return el;
-}
 const root = () => document.getElementById('app');
 function mount(...nodes) { const r = root(); r.replaceChildren(...nodes); window.scrollTo(0, 0); }
 function toast(msg, ms = 2600) {
@@ -111,17 +102,19 @@ function bar(frac, cls = '') {
   return h('div', { class: 'bar ' + cls, role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(frac * 100)) }, h('i', { style: `width:${Math.max(0, Math.min(100, frac * 100)).toFixed(1)}%` }));
 }
 function nav(active) {
-  const item = (id, label) => h('a', { href: '#' + id, class: 'tab' + (active === id ? ' on' : ''), 'aria-current': active === id ? 'page' : false }, u(label));
-  return h('nav', { class: 'tabs' }, item('home', T.home), item('map', T.map), item('parent', T.parent));
+  const item = (id, label, ico) => h('a', { href: '#' + id, class: 'tab' + (active === id ? ' on' : ''), 'aria-current': active === id ? 'page' : false }, h('span', { class: 'ico', 'aria-hidden': 'true' }, ico), h('span', {}, u(label)));
+  return h('nav', { class: 'tabs', 'aria-label': 'Main' }, item('home', T.home, '🏠'), item('map', T.map, '🗺️'), item('parent', T.parent, '👨‍👩‍👧'));
 }
 function header() {
   const p = state.profile, cls = classNow(p, now());
   return h('header', { class: 'top' },
-    h('div', { class: 'brand' }, h('span', { class: 'logo', 'aria-hidden': 'true' }, 'KS'), h('div', {}, h('b', {}, p.name), h('small', {}, `${u(T.classN)} ${cls}`))),
-    h('div', { class: 'stats' },
-      h('span', { class: 'stat', title: u(T.streak) }, h('b', {}, String(streak(state.days, today(), addDays))), h('small', {}, u(T.streak))),
-      h('span', { class: 'stat', title: u(T.stars) }, h('b', {}, String(state.stars || 0)), h('small', {}, u(T.stars)))));
+    h('div', { class: 'brand' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, Array.from(p.name)[0].toUpperCase()), h('div', {}, h('b', {}, p.name), h('small', {}, `${u(T.classN)} ${cls}`))),
+    h('div', { class: 'pills' },
+      h('span', { class: 'pill-stat', title: `${u(T.level)} ${levelInfo(state.stars || 0).index + 1}` }, h('span', { class: 'ico', 'aria-hidden': 'true' }, levelInfo(state.stars || 0).level.icon)),
+      h('span', { class: 'pill-stat', title: u(T.streak) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, '🔥'), String(streak(state.days, today(), addDays))),
+      h('span', { class: 'pill-stat', title: u(T.stars) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, '⭐'), String(state.stars || 0))));
 }
+const ICON = { m: '➗', e: '🔤', h: 'अ', s: '🔬', l: '🧩', c: '💻', g: '🌏', t: '🏛️' };
 const offscreenToday = () => OFFSCREEN[Math.floor(now().getTime() / 864e5) % OFFSCREEN.length];
 
 // ---------- setup ----------
@@ -154,33 +147,83 @@ function viewSetup() {
   mount(h('main', { class: 'wrap' }, f, restoreCard()));
 }
 
+// ---------- rewards UI ----------
+function confetti(n = 46) {
+  if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  const wrap = h('div', { class: 'confetti', 'aria-hidden': 'true' });
+  const cols = ['#2b55e6', '#7b45d6', '#d9730b', '#148a5a', '#c2387a', '#e7b84a'];
+  for (let i = 0; i < n; i++) {
+    const p = h('i', {});
+    p.style.setProperty('--x', `${(Math.random() * 100).toFixed(1)}%`); p.style.setProperty('--dx', `${(Math.random() * 160 - 80).toFixed(0)}px`);
+    p.style.setProperty('--d', `${(1.6 + Math.random() * 1.6).toFixed(2)}s`); p.style.setProperty('--w', `${(Math.random() * .5).toFixed(2)}s`);
+    p.style.setProperty('--r', `${(Math.random() * 720 - 360).toFixed(0)}deg`); p.style.background = cols[i % cols.length];
+    wrap.append(p);
+  }
+  document.body.append(wrap); setTimeout(() => wrap.remove(), 3800);
+}
+// One list of "what you just earned", used on the finish screen and in the Home pop-up.
+function rewardLines(r) {
+  const out = [];
+  if (r.gold) out.push(h('p', { class: 'rw-line gold' }, h('span', { class: 'rw-ico' }, '🌟'), ` ${u(T.goldStar)} +${r.gold}`));
+  if (r.bonus) out.push(h('p', { class: 'rw-line' }, h('span', { class: 'rw-ico' }, '🎁'), ` ${u(T.missionBonus)} +${r.bonus}`));
+  for (const id of r.badges) { const b = BADGES.find(x => x.id === id); out.push(h('p', { class: 'rw-line' }, h('span', { class: 'rw-ico' }, b.icon), ` ${u(T.newBadge)}: `, h('b', {}, t(b.name)), h('span', { class: 'muted small' }, ` · ${t(b.desc)}`))); }
+  if (r.levelUp) { const L2 = LEVELS[r.levelUp.to]; out.push(h('div', { class: 'levelup' }, h('div', { class: 'lu-ico' }, L2.icon), h('h2', {}, u(T.levelUp)), h('p', {}, `${u(T.youAre)} `, h('b', {}, t(L2.name))))); }
+  return out;
+}
+function celebrate(r) {
+  const close = () => { sheet.remove(); };
+  const sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-label': u(T.rewards), onclick: e => { if (e.target === sheet) close(); } },
+    h('section', { class: 'card sheet-body celebrate' }, h('div', { class: 'eyebrow' }, u(T.awesome)), rewardLines(r), h('button', { class: 'btn primary big', id: 'cel-ok', onclick: close }, u(T.gotIt))));
+  document.body.append(sheet); confetti(); document.getElementById('cel-ok').focus();
+}
+function levelTile() {
+  const li = levelInfo(state.stars || 0);
+  return h('section', { class: 'card tile b-wide level-tile' },
+    h('div', { class: 'lv-row' }, h('div', { class: 'lv-ico', 'aria-hidden': 'true' }, li.level.icon),
+      h('div', { class: 'lv-main' }, h('div', { class: 'eyebrow' }, `${u(T.level)} ${li.index + 1}`), h('h2', {}, t(li.level.name)),
+        bar(li.frac), h('small', { class: 'muted' }, li.next ? `${li.toNext} ${u(T.toNext)} ${t(li.next.name)} ${li.next.icon}` : u(T.maxLevel)))));
+}
+function badgeShelf() {
+  const got = state.rw.badges, n = Object.keys(got).length;
+  return h('section', { class: 'card b-wide' }, h('div', { class: 'eyebrow' }, `${u(T.badges)} · ${n}/${BADGES.length} ${u(T.badgesEarned)}`),
+    h('div', { class: 'shelf' }, BADGES.map(b => h('div', { class: 'badge' + (got[b.id] ? ' on' : ''), title: `${t(b.name)}: ${t(b.desc)}`, role: 'img', 'aria-label': `${t(b.name)}${got[b.id] ? '' : ' (locked)'}` },
+      h('span', { class: 'b-ico' }, got[b.id] ? b.icon : '🔒'), h('small', {}, t(b.name))))));
+}
+const settleNow = (extra = {}) => settle(state, { day: today(), streakNow: streak(state.days, today(), addDays), ...extra });
+
 // ---------- home ----------
 function viewHome() {
   const p = state.profile, d = now(), day = today(), cls = classNow(p, d);
   ensureState(skills, state.skills, p, d);
+  const pending = settleNow(); if (!isEmpty(pending)) persist();
   const td = state.days[day] || { q: 0, c: 0, mq: 0, done: false };
   const remaining = Math.max(1, p.dailyQ - (td.mq || 0));
   const due = dueReviews(skills, state.skills, day).length;
-  const mission = h('section', { class: 'card mission' + (td.done ? ' complete' : '') },
+  const mission = h('section', { class: 'card mission hero b-hero' + (td.done ? ' complete' : '') },
     h('div', { class: 'eyebrow' }, u(T.todayMission)),
     td.done
       ? [h('h2', {}, u(T.missionDone)), h('p', {}, u(T.missionDoneNote))]
       : [h('h2', {}, `${remaining} ${u(T.questions)}`), h('p', { class: 'muted' }, `~${Math.max(3, Math.round(remaining * 0.75))} ${u(T.minutes)}${due ? ` · ${due} ${u(T.dueReviews)}` : ''}`),
-        h('button', { class: 'btn primary big', onclick: () => startMission() }, u(td.mq > 0 ? T.continueMission : T.startMission))]);
-  const strands = h('section', { class: 'card' }, h('div', { class: 'eyebrow' }, u(T.practise)),
+        h('button', { class: 'btn primary big pulse', onclick: () => startMission() }, u(td.mq > 0 ? T.continueMission : T.startMission))]);
+  const strands = h('section', { class: 'card b-wide' }, h('div', { class: 'eyebrow' }, u(T.practise)),
     h('div', { class: 'strands' }, enabledStrands().map(s => {
       const pr = strandProgress(skills, state.skills, s, cls);
       return h('button', { class: `strand s-${s}`, onclick: () => startPractice(s) },
-        h('span', { class: 'sname' }, strandName(s)),
+        h('span', { class: 'sico', 'aria-hidden': 'true' }, ICON[s] || '📘'), h('span', { class: 'sname' }, strandName(s)),
         bar(pr.classTotal ? pr.classMastered / pr.classTotal : 0),
         h('small', {}, `${pr.classMastered}/${pr.classTotal} ${u(T.thisClass)}${pr.ahead ? ` · +${pr.ahead} ${u(T.ahead)}` : ''}`));
     })));
   const masteredN = skills.filter(sk => state.skills[sk.id] && state.skills[sk.id].m).length;
-  const test = h('section', { class: 'card row' }, h('div', {}, h('div', { class: 'eyebrow' }, u(T.test)), h('p', { class: 'muted small' }, u(masteredN >= 5 ? T.testNote : T.testNeeds))),
+  const test = h('section', { class: 'card row b-half' }, h('div', {}, h('div', { class: 'eyebrow' }, u(T.test)), h('p', { class: 'muted small' }, u(masteredN >= 5 ? T.testNote : T.testNeeds))),
     h('button', { class: 'btn', disabled: masteredN < 5, onclick: () => startTest() }, u(T.start)));
-  const off = h('section', { class: 'card offscreen' }, h('div', { class: 'eyebrow' }, u(T.offscreen)), h('p', {}, t(offscreenToday())));
+  const off = h('section', { class: 'card offscreen b-half' }, h('div', { class: 'eyebrow' }, u(T.offscreen)), h('p', {}, t(offscreenToday())));
+  const sDays = streak(state.days, today(), addDays);
+  const tStreak = h('section', { class: 'card tile b-half' }, h('div', { class: 'eyebrow' }, u(T.streak)), h('span', { class: 'big-ico', 'aria-hidden': 'true' }, h('span', { class: 'flame' }, '🔥')), h('div', { class: 'big-n' }, String(sDays)));
+  const tStars = h('section', { class: 'card tile b-half' }, h('div', { class: 'eyebrow' }, u(T.stars)), h('span', { class: 'big-ico', 'aria-hidden': 'true' }, '⭐'), h('div', { class: 'big-n' }, String(state.stars || 0)));
   mount(header(), h('main', { class: 'wrap' }, !storage.ok && h('p', { class: 'warn' }, u(T.storageWarn)), boot.recovered && h('p', { class: 'warn' }, u(T.recovered)),
-    h('h1', { class: 'hello' }, `${u(T.hello)}, ${p.name}`), mission, td.done ? off : null, strands, test, td.done ? null : off), nav('home'));
+    h('h1', { class: 'hello' }, `${u(T.hello)}, ${p.name}`),
+    h('div', { class: 'bento' }, mission, levelTile(), tStreak, tStars, td.done ? off : null, strands, test, td.done ? null : off, badgeShelf())), nav('home'));
+  if (!isEmpty(pending)) celebrate(pending);
 }
 
 // ---------- sessions ----------
@@ -201,7 +244,11 @@ function startTest() {
   const picks = Array.from({ length: 15 }, (_, i) => pool[(i * 7 + Math.floor(Math.random() * pool.length)) % pool.length]);
   begin(createSession(app, picks.map(sk => ({ kind: 'skill', skill: sk.id })), { test: true }), 'test');
 }
-function begin(s, mode) { run = { s, mode, results: [] }; step(s.next()); }
+function begin(s, mode) {
+  run = { s, mode, results: [] };
+  if (mode !== 'test' && startReward(state, today())) { persist(); toast(`⭐ ${u(T.startBonus)}`, 2200); }
+  step(s.next());
+}
 
 function step(cur) {
   voice.stop();
@@ -235,6 +282,8 @@ function lesson(cur) {
 function answerText(q) {
   if (q.kind === 'mcq') return t(q.options[q.answer].t);
   if (q.kind === 'frac') return q.answer.d === 1 ? String(q.answer.n) : `${q.answer.n}/${q.answer.d}`;
+  if (q.kind === 'order') return q.answer.map(i => t(q.items[i])).join(' → ');
+  if (q.kind === 'match') return q.left.map((l, i) => `${t(l)} → ${t(q.right[q.answer[i]])}`).join('; ');
   if (q.kind === 'num') return fmt(q.answer);
   return q.answer;
 }
@@ -250,12 +299,40 @@ function robotGrid(g) {
   el('path', { d: 'M0,-11 L9,9 L0,4 L-9,9 Z', class: 'bot', transform: `translate(${cx},${cy}) rotate(${rot})` });
   return svg;
 }
+// Answer controls for any question kind. submit(raw) grades; lock() freezes the controls after grading.
+function controls(q, m, seen, submit) {
+  let opts = null, input = null, wid = null;
+  if (q.kind === 'mcq') {
+    opts = h('div', { class: 'options' + (q.options.length <= 3 && q.options.every(o => t(o.t).length < 14) ? ' inline' : '') },
+      q.options.map((o, i) => h('button', { class: 'opt', 'data-i': String(i), onclick: () => submit(i) }, h('span', { class: 'key' }, 'ABCDE'[i]), h('span', {}, tx(o.t, m, seen)))));
+  } else if (q.kind === 'order' || q.kind === 'match') {
+    wid = (q.kind === 'order' ? orderWidget : matchWidget)(q, v => tx(v, m, seen));
+  } else {
+    input = h('input', { id: 'ans', class: 'answer', autocomplete: 'off', autocapitalize: q.caps ? 'characters' : 'off', spellcheck: 'false', inputmode: q.kind === 'text' ? 'text' : (q.kind === 'frac' ? 'text' : 'decimal'), 'aria-label': u(T.yourAnswer), placeholder: q.kind === 'frac' ? u(T.fracHint) : u(T.yourAnswer) });
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(input.value); });
+  }
+  const row = input ? h('div', { class: 'answer-row' }, input, h('button', { class: 'btn primary', onclick: () => submit(input.value) }, u(T.check)))
+    : wid ? h('div', { class: 'answer-row stack' }, wid.el, h('button', { class: 'btn primary', onclick: () => { const r = wid.raw(); submit(r === null ? '' : r); } }, u(T.check))) : null;
+  // Soft states only: a missed answer is outlined, never painted red. reveal=true also shows the right option.
+  const lock = (ok, raw, reveal) => {
+    if (opts) opts.querySelectorAll('.opt').forEach(b => { b.disabled = true; const i = +b.dataset.i; if (i === q.answer && (ok || reveal)) b.classList.add('right'); else if (!ok && String(i) === String(raw)) b.classList.add('miss'); });
+    if (input) { input.disabled = true; input.classList.add(ok ? 'right' : 'miss'); }
+    if (wid) wid.lock();
+  };
+  return { opts, input, row, lock, focus: card => (input || card.querySelector('.opt, .tile-btn')).focus({ preventScroll: true }) };
+}
+// The part of a question card that shows what is being asked.
+function askBlock(q, m, seen) {
+  return [q.passage && h('details', { class: 'passage', open: true }, h('summary', {}, q.passage.title), h('p', {}, q.passage.text)),
+    q.lead && h('p', { class: 'muted' }, u(q.lead)), h('p', { class: 'prompt' }, tx(q.prompt, m, seen)), q.grid && robotGrid(q.grid), q.code && h('pre', { class: 'code' }, q.code)];
+}
 function question(cur) {
   const { q, skill: sk } = cur, m = M(), seen = new Set();
-  const prompt = tx(q.prompt, m, seen);
+  const prompt = tx(q.prompt, m, new Set());
   let answered = false;
   const fb = h('div', { class: 'feedback', role: 'status', 'aria-live': 'polite' });
   const nextBtn = h('button', { class: 'btn primary big', hidden: true, onclick: () => step(run.s.next()) }, u(T.next));
+  const actions = h('div', { class: 'actions' });
   const submit = raw => {
     if (answered) return;
     const res = run.s.answer(raw);
@@ -265,55 +342,104 @@ function question(cur) {
     if (run.mode === 'test') { run.results.push({ q, sk, raw, ok: res.ok }); return step(run.s.next()); }
     showResult(res, raw);
   };
-  let input = null;
-  const opts = q.kind === 'mcq' ? h('div', { class: 'options' + (q.options.length <= 3 && q.options.every(o => t(o.t).length < 14) ? ' inline' : '') },
-    q.options.map((o, i) => h('button', { class: 'opt', 'data-i': String(i), onclick: () => submit(i) }, h('span', { class: 'key' }, 'ABCDE'[i]), h('span', {}, tx(o.t, m, seen))))) : null;
-  if (q.kind !== 'mcq') {
-    input = h('input', { id: 'ans', class: 'answer', autocomplete: 'off', autocapitalize: q.caps ? 'characters' : 'off', spellcheck: 'false', inputmode: q.kind === 'text' ? 'text' : (q.kind === 'frac' ? 'text' : 'decimal'), 'aria-label': u(T.yourAnswer), placeholder: q.kind === 'frac' ? u(T.fracHint) : u(T.yourAnswer) });
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(input.value); });
-  }
+  const ctl = controls(q, m, seen, submit);
   function showResult(res, raw) {
-    if (opts) opts.querySelectorAll('.opt').forEach(b => { b.disabled = true; const i = +b.dataset.i; if (i === q.answer) b.classList.add('right'); else if (String(i) === String(raw)) b.classList.add('wrong'); });
-    if (input) { input.disabled = true; input.classList.add(res.ok ? 'right' : 'wrong'); }
-    const lines = [h('p', { class: 'verdict' }, u(res.ok ? T.correct : T.wrong))];
-    if (!res.ok) lines.push(h('p', {}, h('b', {}, `${u(T.correctAnswer)}: `), answerText(q)));
-    lines.push(h('p', {}, tx(q.explain, m, seen)));
-    if (res.remedy) lines.push(h('p', { class: 'remedy' }, h('b', {}, `${u(T.remember)}: `), t(res.remedy)));
+    ctl.lock(res.ok, raw, false);
+    if (!res.ok) { // Recursive Guidance Loop: hint now, then an easier question, then a retry (see guide()).
+      const hint = hintFor(sk, app.misc, res.trap);
+      const lines = [h('p', { class: 'verdict' }, `🤔 ${u(MSG.oops)}`), h('p', { class: 'hint' }, h('b', {}, `💡 ${u(MSG.hintLbl)}: `), t(hint.text))];
+      if (res.events.includes('stuck')) lines.push(h('p', { class: 'muted' }, u(T.stuck)));
+      fb.className = 'feedback try'; fb.replaceChildren(...lines);
+      nextBtn.remove();
+      const go = h('button', { class: 'btn primary big pulse', onclick: () => guide(cur, { q, sk, trap: res.trap }, 0) }, u(MSG.easier));
+      actions.append(go); go.focus();
+      if (voice.available() && state.profile.autoRead) voice.speak(fb.textContent);
+      return;
+    }
+    const lines = [h('p', { class: 'verdict' }, u(T.correct), ' ', h('span', { class: 'star-pop' }, '+1 ⭐')), h('p', {}, tx(q.explain, m, seen))];
     for (const e of res.events) {
       if (e === 'mastered') { lines.push(h('p', { class: 'badge-line' }, `★ ${u(T.masteredNow)}: ${t(sk.title)}`)); if (sk.explore) lines.push(h('a', { href: sk.explore, target: '_blank', rel: 'noopener noreferrer', referrerpolicy: 'no-referrer', class: 'explore' }, u(T.explore))); }
       if (e === 'review_ok') lines.push(h('p', { class: 'muted' }, u(T.reviewOk)));
-      if (e === 'relearn') lines.push(h('p', { class: 'muted' }, u(T.relearn)));
-      if (e === 'stuck') lines.push(h('p', { class: 'muted' }, u(T.stuck)));
     }
-    fb.className = 'feedback ' + (res.ok ? 'good' : 'bad');
-    fb.replaceChildren(...lines);
+    fb.className = 'feedback good'; fb.replaceChildren(...lines);
     nextBtn.hidden = false; nextBtn.focus();
-    if (!res.ok && voice.available() && state.profile.autoRead) voice.speak(fb.textContent);
   }
   const helpBtn = h('button', { class: 'btn ghost small', onclick: e => { if (run.s.askParent()) { persist(); e.currentTarget.disabled = true; toast(u(T.helpSent)); } } }, u(T.help));
+  actions.append(voice.available() && h('button', { class: 'btn ghost small', onclick: () => voice.speak(q.say ? q.say : `${prompt} ${q.kind === 'mcq' ? q.options.map((o, i) => `${'ABCDE'[i]}. ${t(o.t)}.`).join(' ') : ''}`) }, u(T.listen)), run.mode !== 'test' && helpBtn, nextBtn);
   const card = h('section', { class: `card q s-${sk.strand}` },
     h('div', { class: 'eyebrow' }, `${strandName(sk.strand)} · ${t(sk.title)}${cur.review ? ` · ${u(T.review)}` : ''}`),
-    q.passage && h('details', { class: 'passage', open: true }, h('summary', {}, q.passage.title), h('p', {}, q.passage.text)),
-    q.lead && h('p', { class: 'muted' }, u(q.lead)),
-    h('p', { class: 'prompt' }, prompt),
-    q.grid && robotGrid(q.grid),
-    q.code && h('pre', { class: 'code' }, q.code),
-    opts, input && h('div', { class: 'answer-row' }, input, h('button', { class: 'btn primary', onclick: () => submit(input.value) }, u(T.check))),
-    fb,
-    h('div', { class: 'actions' },
-      voice.available() && h('button', { class: 'btn ghost small', onclick: () => voice.speak(q.say ? q.say : `${prompt} ${q.kind === 'mcq' ? q.options.map((o, i) => `${'ABCDE'[i]}. ${t(o.t)}.`).join(' ') : ''}`) }, u(T.listen)),
-      run.mode !== 'test' && helpBtn, nextBtn));
+    askBlock(q, m, seen), ctl.opts, ctl.row, fb, actions);
   mount(h('main', { class: 'wrap narrow' }, progressHead(cur), card));
   if (q.say && voice.available()) voice.speak(q.say);
-  (input || card.querySelector('.opt')).focus({ preventScroll: true });
+  ctl.focus(card);
 }
+
+// ---------- Recursive Guidance Loop: Hint -> Scaffold -> Retry -> Reward ----------
+// Guided answers are practice: they never change mastery. Only the first attempt is graded.
+function miniCard(q, sk, { tag, intro, after }) {
+  const m = M(), seen = new Set(); let done = false;
+  const fb = h('div', { class: 'feedback', role: 'status', 'aria-live': 'polite' }), actions = h('div', { class: 'actions' });
+  const submit = raw => {
+    if (done) return;
+    const res = check(q, raw);
+    if (!res.valid) { fb.className = 'feedback note'; fb.replaceChildren(u(q.kind === 'text' ? T.notWord : T.notAnswer)); return; }
+    done = true; ctl.lock(res.ok, raw, false);
+    after(res, {
+      say: (cls, nodes) => { fb.className = 'feedback ' + cls; fb.replaceChildren(...nodes); },
+      reveal: () => ctl.lock(false, raw, true),
+      next: (label, fn) => { const b = h('button', { class: 'btn primary big', onclick: fn }, label); actions.append(b); b.focus(); },
+    });
+  };
+  const ctl = controls(q, m, seen, submit);
+  const card = h('section', { class: `card q guide s-${sk.strand}` }, h('div', { class: 'eyebrow' }, tag), intro, askBlock(q, m, seen), ctl.opts, ctl.row, fb, actions);
+  return { card, focus: () => ctl.focus(card) };
+}
+const verdictP = (icon, v) => h('p', { class: 'verdict' }, `${icon} ${u(v)}`);
+const hintP = (sk, trap) => h('p', { class: 'hint' }, h('b', {}, `💡 ${u(MSG.hintLbl)}: `), t(hintFor(sk, app.misc, trap).text));
+const nextQuestion = () => step(run.s.next());
+// orig = { q, sk, trap }: the question that was missed at this level. onDone() runs after this level's retry.
+function guide(cur, orig, depth, onDone = nextQuestion) {
+  const sc = scaffoldFor(byId, orig.sk, orig.q, (Date.now() & 0x7fffffff) + depth * 7919);
+  const intro = sc.worked ? h('div', { class: 'example' }, h('div', { class: 'eyebrow' }, `📖 ${u(MSG.worked)}`), h('p', {}, tx(sc.worked, M())))
+    : h('p', { class: 'muted' }, `🌱 ${u(MSG.prereqNote)} · ${t(sc.skill.title)}`);
+  const retry = () => showRetry(cur, orig, depth === 0, onDone);
+  const mc = miniCard(sc.q, sc.skill, { tag: `🪜 ${u(MSG.easier)}`, intro, after: (res, c) => {
+    if (res.ok) { c.say('good', [verdictP('✅', MSG.scaffoldOk), h('p', {}, tx(sc.q.explain, M()))]); return c.next(u(MSG.tryOrig), retry); }
+    if (depth + 1 < MAX_DEPTH) { // the easier question was missed too: one more, simpler level, then back up
+      c.say('try', [verdictP('🤔', MSG.oops), hintP(sc.skill, res.trap)]);
+      return c.next(u(MSG.easier), () => guide(cur, { q: sc.q, sk: sc.skill, trap: res.trap }, depth + 1, retry));
+    }
+    c.reveal(); c.say('try', [verdictP('🌱', MSG.scaffoldNo), h('p', {}, h('b', {}, `${u(T.correctAnswer)}: `), answerText(sc.q)), h('p', {}, tx(sc.q.explain, M()))]);
+    c.next(u(MSG.tryOrig), retry);
+  } });
+  mount(h('main', { class: 'wrap narrow' }, progressHead(cur), mc.card)); mc.focus();
+}
+function showRetry(cur, o, top, onDone) {
+  const mc = miniCard(o.q, o.sk, { tag: `🔁 ${u(MSG.retry)}`, intro: null, after: (res, c) => {
+    const label = u(top ? T.next : MSG.tryOrig);
+    if (res.ok) {
+      const lines = [verdictP('🎉', top ? MSG.comeback : MSG.scaffoldOk)];
+      if (top) { const n = comebackReward(state); persist(); confetti(34); lines.push(h('p', {}, h('span', { class: 'star-pop' }, `+${n} ⭐`))); }
+      lines.push(h('p', {}, tx(o.q.explain, M())));
+      c.say('good', lines); return c.next(label, onDone);
+    }
+    c.reveal();
+    const lines = [verdictP('🌱', MSG.notYet), h('p', {}, h('b', {}, `${u(T.correctAnswer)}: `), answerText(o.q)), h('p', {}, tx(o.q.explain, M()))];
+    const rem = res.trap && app.misc[res.trap]; if (rem) lines.push(h('p', { class: 'remedy' }, h('b', {}, `${u(T.remember)}: `), t(rem)));
+    c.say('try', lines); c.next(label, onDone);
+  } });
+  mount(h('main', { class: 'wrap narrow' }, progressHead(cur), mc.card)); mc.focus();
+}
+
 function finish() {
-  const st = run.s.finish(); persist();
+  const st = run.s.finish();
+  const rw = settleNow({ stats: st, completed: true }); persist();
   const rows = [h('div', { class: 'eyebrow' }, u(T.done)),
     h('div', { class: 'big-stats' },
       h('div', {}, h('b', {}, String(st.asked)), h('small', {}, u(T.answered))),
       h('div', {}, h('b', {}, String(st.correct)), h('small', {}, u(T.rightCount))),
-      h('div', {}, h('b', {}, `+${st.stars}`), h('small', {}, u(T.stars))))];
+      h('div', {}, h('b', {}, `+${st.stars + rw.gold + rw.bonus}`), h('small', {}, u(T.stars))))];
+  if (!isEmpty(rw)) rows.push(h('div', { class: 'rw-box' }, rewardLines(rw)));
   if (st.mastered.length) rows.push(h('h2', {}, u(T.newMastered)), h('ul', {}, [...new Set(st.mastered)].map(id => h('li', {}, t(byId[id].title)))));
   if (run.mode === 'test' && run.results.length) {
     rows.push(h('h2', {}, u(T.testReview)), h('ol', { class: 'review-list' }, run.results.map(r => h('li', { class: r.ok ? 'ok' : 'no' },
@@ -323,6 +449,7 @@ function finish() {
   rows.push(h('button', { class: 'btn primary big', onclick: () => go('home') }, u(T.backHome)));
   run = null;
   mount(h('main', { class: 'wrap narrow' }, h('section', { class: 'card done' }, rows)));
+  if (!isEmpty(rw) || st.mastered.length) confetti(rw.levelUp ? 80 : 40);
 }
 
 // ---------- skill map ----------

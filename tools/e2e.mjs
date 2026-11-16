@@ -13,6 +13,7 @@ const b = await chromium.launch();
 const problems = [];
 async function open(ctx, url) {
   const p = await ctx.newPage();
+  await p.addLocatorHandler(p.locator('#cel-ok'), l => l.click()); // reward pop-up: the child taps OK
   p.on('pageerror', e => problems.push('pageerror: ' + e.message));
   p.on('console', m => { if (m.type() === 'error') problems.push('console: ' + m.text()); });
   p.on('request', r => { if (!/^(file|data|blob|http:\/\/127\.0\.0\.1)/.test(r.url())) problems.push('network: ' + r.url()); });
@@ -40,22 +41,50 @@ await step('PIN is stored salted, never in clear', async () => {
 const answerOnce = async () => {
   if (await p.$('.lesson')) { await p.click('#go'); return false; }
   const inp = await p.$('#ans');
-  if (inp) { await inp.fill('7'); await p.click('.answer-row .btn'); } else await p.click('.opt');
-  await p.waitForSelector('.feedback.good, .feedback.bad'); await p.click('.q .actions .btn.primary');
+  if (inp) { await inp.fill('7'); await p.click('.answer-row .btn'); }
+  else if (await p.$('.w-order')) { while (await p.$('.ord-bank .tile-btn:not([disabled])')) await p.click('.ord-bank .tile-btn:not([disabled])'); await p.click('.answer-row .btn'); }
+  else if (await p.$('.w-match')) { while (await p.$('.m-col:first-child .tile-btn:not(.paired)')) { await p.click('.m-col:first-child .tile-btn:not(.paired)'); await p.click('.m-col:last-child .tile-btn:not(.paired)'); } await p.click('.answer-row .btn'); }
+  else await p.click('.opt');
+  // A miss is never red: the card shows a hint and offers the easier question (Hint -> Scaffold -> Retry -> Reward).
+  await p.waitForSelector('.feedback.good, .feedback.try'); await p.click('.q .actions .btn.primary');
   return true;
 };
 await step('stop mid-mission returns home and keeps progress', async () => {
   await p.click('.mission .btn.primary');
   let n = 0; while (n < 3) if (await answerOnce()) n++;
   await p.click('.qhead .btn'); await p.waitForSelector('.mission');
-  assert.match(await text(p), /15 questions/);
+  const mq = await p.evaluate(() => Object.values(JSON.parse(localStorage.getItem('kslearn.v2')).days)[0].mq);
+  assert.ok(mq >= 1 && mq <= 3, 'only graded answers count towards the mission'); assert.match(await text(p), new RegExp(`${18 - mq} questions`));
 });
 await step('full mission completes and is marked done', async () => {
   await p.click('.mission .btn.primary');
-  for (let i = 0; i < 80 && !(await p.$('.card.done')); i++) await answerOnce();
+  for (let i = 0; i < 300 && !(await p.$('.card.done')); i++) await answerOnce();
   await p.click('.card.done .btn.primary'); await p.waitForSelector('.mission.complete');
   const d = await p.evaluate(() => Object.values(JSON.parse(localStorage.getItem('kslearn.v2')).days)[0]);
   assert.equal(d.done, true); assert.equal(d.mq, 18);
+});
+await step('guidance loop: a miss shows a hint, then an easier question, then a retry; nothing is red', async () => {
+  await p.click('a[href="#home"]').catch(() => {}); await p.waitForSelector('.strand.s-s');
+  await p.click('.strand.s-s'); let seenTry = false;
+  for (let i = 0; i < 40 && !seenTry; i++) {
+    if (await p.$('.lesson')) { await p.click('#go'); continue; }
+    await p.click(`.opt[data-i="${i % 3}"]`);
+    await p.waitForSelector('.feedback.good, .feedback.try');
+    if (await p.$('.feedback.try')) {
+      seenTry = true;
+      const t = await p.$eval('.feedback.try', e => e.textContent);
+      assert.ok(!/wrong|incorrect|गलत/i.test(t), 'no harsh wording'); assert.ok(await p.$('.feedback.try .hint'), 'a hint is shown');
+      assert.equal(await p.$$eval('.opt.right', e => e.length), 0, 'the answer is not revealed yet');
+      assert.equal(await p.$$eval('.opt.wrong, .feedback.bad', e => e.length), 0, 'no red wrong state');
+      await p.click('.q .actions .btn.primary'); await p.waitForSelector('.card.guide');          // scaffold
+      await p.click('.opt'); await p.waitForSelector('.feedback.good, .feedback.try'); await p.click('.q .actions .btn.primary');
+      if (await p.$('.eyebrow:has-text("🪜")')) { await p.click('.opt'); await p.waitForSelector('.feedback.good, .feedback.try'); await p.click('.q .actions .btn.primary'); } // optional second level
+      await p.waitForSelector('.card.guide .eyebrow:has-text("🔁")');                           // retry of the original
+      await p.click('.opt'); await p.waitForSelector('.feedback.good, .feedback.try'); await p.click('.q .actions .btn.primary');
+    } else await p.click('.q .actions .btn.primary');
+  }
+  assert.ok(seenTry, 'a miss happened and the loop ran');
+  await p.click('.qhead .btn'); await p.waitForSelector('.mission');
 });
 await step('keyboard shortcut ignores Ctrl/Alt combos', async () => {
   await p.click('.strand'); if (await p.$('.lesson')) await p.click('#go');

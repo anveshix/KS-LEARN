@@ -41,3 +41,8 @@
 - Content is AI-written; facts are not checked against NCERT books. Two items corrected in this pass.
 - Voice not heard on a real phone. No real-device install test (Chromium only).
 - GitHub Actions are pinned by major tag, not commit SHA.
+
+## v2.2 additions (gamification build)
+- Phase 1: glass/bento UI. Phase 2: `core/rewards.js` (stars, levels, golden stars, streak bonus, badges).
+- Phase 3: `core/guidance.js` Hint -> Scaffold -> Retry -> Reward loop (guided answers never change mastery; only the first attempt is graded; no red "wrong" state outside the weekly test). New strand `t` (Social Science, 13 skills) and interactive `order` / `match` question kinds (SST timeline and capitals, English sentence building and opposites, Hindi vakya, vilom, ling, sandhi).
+- Content is AI-written and still needs a teacher's check against NCERT books.

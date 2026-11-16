@@ -4,7 +4,7 @@ import { L } from './i18n.js';
 import { rng } from './rng.js';
 import { auditQuestion } from './audit.js';
 
-const STRANDS = new Set(['m', 'e', 'h', 's', 'l', 'c', 'g']);
+const STRANDS = new Set(['m', 'e', 'h', 's', 'l', 'c', 'g', 't']);
 const lt = v => (v && typeof v === 'object' ? L(String(v.en || ''), String(v.hi || '')) : L(String(v || ''), String(v || '')));
 
 function mcqFrom(r, it) {
