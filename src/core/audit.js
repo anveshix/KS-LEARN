@@ -23,6 +23,17 @@ export function auditQuestion(sk, q, MISC) {
     if (new Set(keys).size !== keys.length) errs.push('duplicate options');
     for (const o of q.options) if (o.m && !MISC[o.m]) errs.push(`unknown misconception ${o.m}`);
     if (!check(q, q.answer).ok) errs.push('key does not check');
+  } else if (q.kind === 'order' || q.kind === 'match') {
+    const side = q.kind === 'order' ? q.items : q.right, n = q.answer.length, key = v => (typeof v === 'object' ? v.en : String(v)).trim().toLowerCase();
+    if (!Array.isArray(side) || side.length !== n || n < 2 || (q.kind === 'match' && (!Array.isArray(q.left) || q.left.length !== n))) errs.push('bad ' + q.kind + ' shape');
+    else {
+      if (new Set(q.answer).size !== n || q.answer.some(v => !Number.isInteger(v) || v < 0 || v >= n)) errs.push('answer is not a permutation');
+      if (new Set(side.map(key)).size !== n) errs.push('duplicate items');
+      if (q.kind === 'match' && new Set(q.left.map(key)).size !== n) errs.push('duplicate left items');
+      if (q.answer.every((v, i) => v === i)) errs.push('already in order');
+      if (!check(q, q.answer).ok) errs.push('key does not check');
+      [...side, ...(q.left || [])].forEach(v => bi(v, 'item'));
+    }
   } else if (q.kind === 'num') {
     if (!Number.isFinite(q.answer)) errs.push('answer not a number');
     if (!check(q, String(q.answer)).ok) errs.push(`key does not check: ${q.answer}`);

@@ -45,3 +45,15 @@ export const traps = (...list) => list.filter(t => t && Number.isFinite(t.v));
 export const keyed = (q, key) => ({ ...q, key: String(key) });
 export const others = (r, list, not, n, same = () => false) => r.shuffle(list.filter(x => x !== not && !same(x, not))).slice(0, n);
 export { L };
+
+// Interactive kinds. order: put the items in the right sequence. match: pair each left item with its partner.
+// `seq` / `pairs` are given in the CORRECT arrangement; the learner sees them shuffled.
+const shuffled = (r, n) => { let idx; do idx = r.shuffle(Array.from({ length: n }, (_, i) => i)); while (n > 1 && idx.every((v, i) => v === i)); return idx; };
+export function orderQ(r, prompt, seq, explain, o = {}) {
+  const idx = shuffled(r, seq.length);
+  return { kind: 'order', prompt, items: idx.map(i => seq[i]), answer: seq.map((_, i) => idx.indexOf(i)), explain, ...o };
+}
+export function matchQ(r, prompt, pairs, explain, o = {}) {
+  const idx = shuffled(r, pairs.length);
+  return { kind: 'match', prompt, left: pairs.map(p => p[0]), right: idx.map(i => pairs[i][1]), answer: pairs.map((_, i) => idx.indexOf(i)), explain, ...o };
+}

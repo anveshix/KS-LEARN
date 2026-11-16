@@ -1,5 +1,5 @@
 /*
-  Content-Security-Policy: default-src 'none'; script-src 'sha256-sS9EZAWJ+5FX9LXdx0TYPSegltC/thaL/U1J6TCwVuU='; style-src 'sha256-aA2mhoa9k+gyZqL2/D1cc35cFMuVwWs7+nbrIdSrspk='; base-uri 'none'; form-action 'none'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; connect-src 'self'; frame-ancestors 'none'
+  Content-Security-Policy: default-src 'none'; script-src 'sha256-uNsi5HjM2EPrIy1ueaN0cDLs/8rpOCDZb9XtqBhMj2E='; style-src 'sha256-gNbKwIwE213zDQVMAKlPgknZEcULBuF7pkRqbUdcoqY='; base-uri 'none'; form-action 'none'; img-src 'self' data:; manifest-src 'self'; worker-src 'self'; connect-src 'self'; frame-ancestors 'none'
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: no-referrer

@@ -5,6 +5,7 @@ import { LOGIC, CODE } from './gen-logic.js';
 import { ENGLISH, HINDI } from './bank-lang.js';
 import { SCIENCE, GK, AI_LIT } from './bank-sci.js';
 import { HINDI_MORE, SCIENCE_MORE, GK_MORE } from './bank-more.js';
+import { SST, INTERACTIVE } from './bank-t.js';
 import { MISC } from './misc.js';
 
 export const STRAND_INFO = {
@@ -15,6 +16,7 @@ export const STRAND_INFO = {
   l: { name: L('Reasoning', 'तर्कशक्ति'), color: 'l' },
   c: { name: L('Coding', 'कोडिंग'), color: 'c' },
   g: { name: L('General knowledge', 'सामान्य ज्ञान'), color: 'g' },
+  t: { name: L('Social Science', 'सामाजिक विज्ञान'), color: 't' },
 };
 // Free, open simulations (PhET, University of Colorado Boulder, CC-BY) to explore after mastering a skill. Online only.
 const PHET = 'https://phet.colorado.edu/en/simulations/';
@@ -23,7 +25,7 @@ const EXPLORE = {
   'm.tables': 'arithmetic', 'm.int_add': 'number-line-integers', 'm.eq1': 'equality-explorer', 'm.ratio_div': 'ratio-and-proportion',
   's.matter': 'states-of-matter-basics', 's.space': 'gravity-and-orbits', 's.force': 'forces-and-motion-basics', 's.light': 'bending-light',
 };
-export const SKILLS = [...MATH, ...ENGLISH, ...HINDI, ...HINDI_MORE, ...SCIENCE, ...SCIENCE_MORE, ...LOGIC, ...CODE, ...AI_LIT, ...GK, ...GK_MORE]
+export const SKILLS = [...MATH, ...ENGLISH, ...HINDI, ...HINDI_MORE, ...SCIENCE, ...SCIENCE_MORE, ...LOGIC, ...CODE, ...AI_LIT, ...GK, ...GK_MORE, ...SST, ...INTERACTIVE]
   .map(s => (EXPLORE[s.id] ? { ...s, explore: PHET + EXPLORE[s.id] } : s));
 export const BY_ID = Object.fromEntries(SKILLS.map(s => [s.id, s]));
 export { MISC };

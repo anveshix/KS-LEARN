@@ -27,6 +27,11 @@ export function check(q, raw) {
     if (!Number.isInteger(i) || i < 0 || i >= q.options.length) return { valid: false };
     return { valid: true, ok: i === q.answer, trap: i === q.answer ? null : q.options[i].m || null };
   }
+  if (q.kind === 'order' || q.kind === 'match') {
+    const n = q.answer.length;
+    if (!Array.isArray(raw) || raw.length !== n || !raw.every(v => Number.isInteger(v) && v >= 0 && v < n) || new Set(raw).size !== n) return { valid: false };
+    return { valid: true, ok: raw.every((v, i) => v === q.answer[i]), trap: null };
+  }
   if (q.kind === 'num') {
     const v = parseNum(raw);
     if (v === null) return { valid: false };

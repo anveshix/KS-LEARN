@@ -14,7 +14,7 @@ export const LEVELS = [
   { min: 3000, icon: '👑', name: L('Master Coder', 'मास्टर कोडर') },
 ];
 
-export const REWARD = { start: 1, gold: 5, mission: 10, streakCap: 7, goldMinAsked: 3, perfectMin: 8 };
+export const REWARD = { comeback: 2, start: 1, gold: 5, mission: 10, streakCap: 7, goldMinAsked: 3, perfectMin: 8 };
 
 // ctx: { stars, streak, mastered, missions, sessions, perfect }
 export const BADGES = [
@@ -27,6 +27,7 @@ export const BADGES = [
   { id: 'master10', icon: '💎', name: L('Skill Collector', 'कौशल संग्रहकर्ता'), desc: L('Master 10 skills', '10 कौशल सीख लो'), ok: c => c.mastered >= 10 },
   { id: 'master25', icon: '🧠', name: L('Big Brain', 'तेज़ दिमाग़'), desc: L('Master 25 skills', '25 कौशल सीख लो'), ok: c => c.mastered >= 25 },
   { id: 'perfect', icon: '💯', name: L('Perfect Run', 'शानदार दौर'), desc: L('Get every answer right in a session of 8+', '8+ प्रश्नों में सब सही'), ok: c => c.perfect },
+  { id: 'comeback', icon: '💪', name: L('Comeback Kid', 'हार नहीं मानी'), desc: L('Fix 5 mistakes with a hint', 'संकेत से 5 गलतियाँ सुधारो'), ok: c => c.recovered >= 5 },
   { id: 'stars100', icon: '⭐', name: L('100 Stars', '100 तारे'), desc: L('Collect 100 stars', '100 तारे जमा करो'), ok: c => c.stars >= 100 },
   { id: 'stars500', icon: '🌠', name: L('500 Stars', '500 तारे'), desc: L('Collect 500 stars', '500 तारे जमा करो'), ok: c => c.stars >= 500 },
 ];
@@ -37,8 +38,15 @@ export function levelInfo(stars) {
   const s = Math.max(0, stars | 0), i = levelIndex(s), cur = LEVELS[i], nxt = LEVELS[i + 1] || null;
   return { index: i, level: cur, next: nxt, toNext: nxt ? nxt.min - s : 0, frac: nxt ? (s - cur.min) / (nxt.min - cur.min) : 1 };
 }
-export const freshRw = stars => ({ badges: {}, lvl: levelIndex(stars || 0), bonusDay: null, startDay: null, gold: 0 });
+export const freshRw = stars => ({ badges: {}, lvl: levelIndex(stars || 0), bonusDay: null, startDay: null, gold: 0, rec: 0 });
 const rwOf = state => (state.rw || (state.rw = freshRw(state.stars)));
+
+// The Retry step of the guidance loop was answered correctly: a comeback star bonus.
+export function comebackReward(state) {
+  const rw = rwOf(state);
+  rw.rec++; state.stars = (state.stars || 0) + REWARD.comeback;
+  return REWARD.comeback;
+}
 
 // First session of the day earns a small "you showed up" star. Once per day, so start/quit cannot farm stars.
 export function startReward(state, day) {
@@ -61,7 +69,7 @@ export function settle(state, { stats = null, completed = false, day, streakNow,
   }
   const ctx = {
     stars: state.stars, streak: streakNow, sessions: state.log.length > 0 ? 1 : 0, perfect: !!(stats && stats.asked >= REWARD.perfectMin && stats.correct === stats.asked),
-    mastered: Object.values(state.skills).filter(s => s.m).length, missions: Object.values(state.days).filter(d => d.done).length,
+    recovered: rw.rec, mastered: Object.values(state.skills).filter(s => s.m).length, missions: Object.values(state.days).filter(d => d.done).length,
   };
   for (const b of BADGES) if (!rw.badges[b.id] && b.ok(ctx)) { rw.badges[b.id] = day; out.badges.push(b.id); }
   const li = levelIndex(state.stars);

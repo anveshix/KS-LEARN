@@ -108,7 +108,8 @@ function simulate(accuracy, days, cls = 4, seed = 1) {
       if (cur.type === 'lesson') { cur = s.next(); continue; }
       const q = cur.q, ok = r() < accuracy;
       let raw;
-      if (ok) raw = q.kind === 'mcq' ? q.answer : q.kind === 'frac' ? `${q.answer.n}/${q.answer.d}` : String(q.answer);
+      if (q.kind === 'order' || q.kind === 'match') { raw = q.answer.slice(); if (!ok) [raw[0], raw[1]] = [raw[1], raw[0]]; }
+      else if (ok) raw = q.kind === 'mcq' ? q.answer : q.kind === 'frac' ? `${q.answer.n}/${q.answer.d}` : String(q.answer);
       else raw = q.kind === 'mcq' ? (q.answer + 1) % q.options.length : q.kind === 'frac' ? `${q.answer.n + 1}/${q.answer.d}` : q.kind === 'num' ? String(q.answer + 7) : 'zzz';
       const res = s.answer(raw); assert.ok(res.valid);
       cur = s.next();

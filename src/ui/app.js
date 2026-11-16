@@ -6,11 +6,15 @@ import { ensureState, buildMission, classNow, academicYear, strandProgress, dueR
 import { createSession, streak } from '../core/session.js';
 import { load, save, freshState, exportText, importText, keepUndo, readUndo, STORE_KEY, MAX_IMPORT_BYTES } from '../core/store.js';
 import { makePin, verifyPin, needsUpgrade, validPin, recordAttempt, lockedFor } from '../core/pin.js';
-import { LEVELS, BADGES, levelInfo, startReward, settle, isEmpty } from '../core/rewards.js';
+import { LEVELS, BADGES, levelInfo, startReward, comebackReward, settle, isEmpty } from '../core/rewards.js';
 import { weekSummary, topMistakes, needsHelp, roadmap, skillStatus } from '../core/insights.js';
 import { packToSkills, validatePack } from '../core/packs.js';
 import { fmt } from '../content/kit.js';
 import { T, OFFSCREEN } from './labels.js';
+import { h } from './dom.js';
+import { orderWidget, matchWidget } from './widgets.js';
+import { check } from '../core/check.js';
+import { hintFor, scaffoldFor, MAX_DEPTH, MSG } from '../core/guidance.js';
 
 // ---------- environment ----------
 const mem = {};
@@ -47,20 +51,6 @@ const M = () => (state.profile && state.profile.lang) || 'bi';
 const t = v => tx(v, M());
 const u = v => ui(v, M());
 
-// ---------- tiny DOM helper ----------
-function h(tag, props, ...kids) {
-  const el = document.createElement(tag);
-  for (const [k, v] of Object.entries(props || {})) {
-    if (v === false || v == null) continue;
-    if (k === 'class') el.className = v;
-    else if (k.startsWith('on')) el.addEventListener(k.slice(2), v);
-    else if (k === 'text') el.textContent = v;
-    else if (k === 'style') el.style.cssText = v; // CSSOM, so a strict Content-Security-Policy needs no 'unsafe-inline'
-    else el.setAttribute(k, v === true ? '' : v);
-  }
-  for (const c of kids.flat(Infinity)) if (c != null && c !== false) el.append(c.nodeType ? c : document.createTextNode(String(c)));
-  return el;
-}
 const root = () => document.getElementById('app');
 function mount(...nodes) { const r = root(); r.replaceChildren(...nodes); window.scrollTo(0, 0); }
 function toast(msg, ms = 2600) {
@@ -124,7 +114,7 @@ function header() {
       h('span', { class: 'pill-stat', title: u(T.streak) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, '🔥'), String(streak(state.days, today(), addDays))),
       h('span', { class: 'pill-stat', title: u(T.stars) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, '⭐'), String(state.stars || 0))));
 }
-const ICON = { m: '➗', e: '🔤', h: 'अ', s: '🔬', l: '🧩', c: '💻', g: '🌏' };
+const ICON = { m: '➗', e: '🔤', h: 'अ', s: '🔬', l: '🧩', c: '💻', g: '🌏', t: '🏛️' };
 const offscreenToday = () => OFFSCREEN[Math.floor(now().getTime() / 864e5) % OFFSCREEN.length];
 
 // ---------- setup ----------
@@ -292,6 +282,8 @@ function lesson(cur) {
 function answerText(q) {
   if (q.kind === 'mcq') return t(q.options[q.answer].t);
   if (q.kind === 'frac') return q.answer.d === 1 ? String(q.answer.n) : `${q.answer.n}/${q.answer.d}`;
+  if (q.kind === 'order') return q.answer.map(i => t(q.items[i])).join(' → ');
+  if (q.kind === 'match') return q.left.map((l, i) => `${t(l)} → ${t(q.right[q.answer[i]])}`).join('; ');
   if (q.kind === 'num') return fmt(q.answer);
   return q.answer;
 }
@@ -307,12 +299,40 @@ function robotGrid(g) {
   el('path', { d: 'M0,-11 L9,9 L0,4 L-9,9 Z', class: 'bot', transform: `translate(${cx},${cy}) rotate(${rot})` });
   return svg;
 }
+// Answer controls for any question kind. submit(raw) grades; lock() freezes the controls after grading.
+function controls(q, m, seen, submit) {
+  let opts = null, input = null, wid = null;
+  if (q.kind === 'mcq') {
+    opts = h('div', { class: 'options' + (q.options.length <= 3 && q.options.every(o => t(o.t).length < 14) ? ' inline' : '') },
+      q.options.map((o, i) => h('button', { class: 'opt', 'data-i': String(i), onclick: () => submit(i) }, h('span', { class: 'key' }, 'ABCDE'[i]), h('span', {}, tx(o.t, m, seen)))));
+  } else if (q.kind === 'order' || q.kind === 'match') {
+    wid = (q.kind === 'order' ? orderWidget : matchWidget)(q, v => tx(v, m, seen));
+  } else {
+    input = h('input', { id: 'ans', class: 'answer', autocomplete: 'off', autocapitalize: q.caps ? 'characters' : 'off', spellcheck: 'false', inputmode: q.kind === 'text' ? 'text' : (q.kind === 'frac' ? 'text' : 'decimal'), 'aria-label': u(T.yourAnswer), placeholder: q.kind === 'frac' ? u(T.fracHint) : u(T.yourAnswer) });
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(input.value); });
+  }
+  const row = input ? h('div', { class: 'answer-row' }, input, h('button', { class: 'btn primary', onclick: () => submit(input.value) }, u(T.check)))
+    : wid ? h('div', { class: 'answer-row stack' }, wid.el, h('button', { class: 'btn primary', onclick: () => { const r = wid.raw(); submit(r === null ? '' : r); } }, u(T.check))) : null;
+  // Soft states only: a missed answer is outlined, never painted red. reveal=true also shows the right option.
+  const lock = (ok, raw, reveal) => {
+    if (opts) opts.querySelectorAll('.opt').forEach(b => { b.disabled = true; const i = +b.dataset.i; if (i === q.answer && (ok || reveal)) b.classList.add('right'); else if (!ok && String(i) === String(raw)) b.classList.add('miss'); });
+    if (input) { input.disabled = true; input.classList.add(ok ? 'right' : 'miss'); }
+    if (wid) wid.lock();
+  };
+  return { opts, input, row, lock, focus: card => (input || card.querySelector('.opt, .tile-btn')).focus({ preventScroll: true }) };
+}
+// The part of a question card that shows what is being asked.
+function askBlock(q, m, seen) {
+  return [q.passage && h('details', { class: 'passage', open: true }, h('summary', {}, q.passage.title), h('p', {}, q.passage.text)),
+    q.lead && h('p', { class: 'muted' }, u(q.lead)), h('p', { class: 'prompt' }, tx(q.prompt, m, seen)), q.grid && robotGrid(q.grid), q.code && h('pre', { class: 'code' }, q.code)];
+}
 function question(cur) {
   const { q, skill: sk } = cur, m = M(), seen = new Set();
-  const prompt = tx(q.prompt, m, seen);
+  const prompt = tx(q.prompt, m, new Set());
   let answered = false;
   const fb = h('div', { class: 'feedback', role: 'status', 'aria-live': 'polite' });
   const nextBtn = h('button', { class: 'btn primary big', hidden: true, onclick: () => step(run.s.next()) }, u(T.next));
+  const actions = h('div', { class: 'actions' });
   const submit = raw => {
     if (answered) return;
     const res = run.s.answer(raw);
@@ -322,48 +342,95 @@ function question(cur) {
     if (run.mode === 'test') { run.results.push({ q, sk, raw, ok: res.ok }); return step(run.s.next()); }
     showResult(res, raw);
   };
-  let input = null;
-  const opts = q.kind === 'mcq' ? h('div', { class: 'options' + (q.options.length <= 3 && q.options.every(o => t(o.t).length < 14) ? ' inline' : '') },
-    q.options.map((o, i) => h('button', { class: 'opt', 'data-i': String(i), onclick: () => submit(i) }, h('span', { class: 'key' }, 'ABCDE'[i]), h('span', {}, tx(o.t, m, seen))))) : null;
-  if (q.kind !== 'mcq') {
-    input = h('input', { id: 'ans', class: 'answer', autocomplete: 'off', autocapitalize: q.caps ? 'characters' : 'off', spellcheck: 'false', inputmode: q.kind === 'text' ? 'text' : (q.kind === 'frac' ? 'text' : 'decimal'), 'aria-label': u(T.yourAnswer), placeholder: q.kind === 'frac' ? u(T.fracHint) : u(T.yourAnswer) });
-    input.addEventListener('keydown', e => { if (e.key === 'Enter') submit(input.value); });
-  }
+  const ctl = controls(q, m, seen, submit);
   function showResult(res, raw) {
-    if (opts) opts.querySelectorAll('.opt').forEach(b => { b.disabled = true; const i = +b.dataset.i; if (i === q.answer) b.classList.add('right'); else if (String(i) === String(raw)) b.classList.add('wrong'); });
-    if (input) { input.disabled = true; input.classList.add(res.ok ? 'right' : 'wrong'); }
-    const lines = [h('p', { class: 'verdict' }, u(res.ok ? T.correct : T.wrong))];
-    if (!res.ok) lines.push(h('p', {}, h('b', {}, `${u(T.correctAnswer)}: `), answerText(q)));
-    lines.push(h('p', {}, tx(q.explain, m, seen)));
-    if (res.remedy) lines.push(h('p', { class: 'remedy' }, h('b', {}, `${u(T.remember)}: `), t(res.remedy)));
+    ctl.lock(res.ok, raw, false);
+    if (!res.ok) { // Recursive Guidance Loop: hint now, then an easier question, then a retry (see guide()).
+      const hint = hintFor(sk, app.misc, res.trap);
+      const lines = [h('p', { class: 'verdict' }, `🤔 ${u(MSG.oops)}`), h('p', { class: 'hint' }, h('b', {}, `💡 ${u(MSG.hintLbl)}: `), t(hint.text))];
+      if (res.events.includes('stuck')) lines.push(h('p', { class: 'muted' }, u(T.stuck)));
+      fb.className = 'feedback try'; fb.replaceChildren(...lines);
+      nextBtn.remove();
+      const go = h('button', { class: 'btn primary big pulse', onclick: () => guide(cur, { q, sk, trap: res.trap }, 0) }, u(MSG.easier));
+      actions.append(go); go.focus();
+      if (voice.available() && state.profile.autoRead) voice.speak(fb.textContent);
+      return;
+    }
+    const lines = [h('p', { class: 'verdict' }, u(T.correct), ' ', h('span', { class: 'star-pop' }, '+1 ⭐')), h('p', {}, tx(q.explain, m, seen))];
     for (const e of res.events) {
       if (e === 'mastered') { lines.push(h('p', { class: 'badge-line' }, `★ ${u(T.masteredNow)}: ${t(sk.title)}`)); if (sk.explore) lines.push(h('a', { href: sk.explore, target: '_blank', rel: 'noopener noreferrer', referrerpolicy: 'no-referrer', class: 'explore' }, u(T.explore))); }
       if (e === 'review_ok') lines.push(h('p', { class: 'muted' }, u(T.reviewOk)));
-      if (e === 'relearn') lines.push(h('p', { class: 'muted' }, u(T.relearn)));
-      if (e === 'stuck') lines.push(h('p', { class: 'muted' }, u(T.stuck)));
     }
-    fb.className = 'feedback ' + (res.ok ? 'good' : 'bad');
-    fb.replaceChildren(...lines);
+    fb.className = 'feedback good'; fb.replaceChildren(...lines);
     nextBtn.hidden = false; nextBtn.focus();
-    if (!res.ok && voice.available() && state.profile.autoRead) voice.speak(fb.textContent);
   }
   const helpBtn = h('button', { class: 'btn ghost small', onclick: e => { if (run.s.askParent()) { persist(); e.currentTarget.disabled = true; toast(u(T.helpSent)); } } }, u(T.help));
+  actions.append(voice.available() && h('button', { class: 'btn ghost small', onclick: () => voice.speak(q.say ? q.say : `${prompt} ${q.kind === 'mcq' ? q.options.map((o, i) => `${'ABCDE'[i]}. ${t(o.t)}.`).join(' ') : ''}`) }, u(T.listen)), run.mode !== 'test' && helpBtn, nextBtn);
   const card = h('section', { class: `card q s-${sk.strand}` },
     h('div', { class: 'eyebrow' }, `${strandName(sk.strand)} · ${t(sk.title)}${cur.review ? ` · ${u(T.review)}` : ''}`),
-    q.passage && h('details', { class: 'passage', open: true }, h('summary', {}, q.passage.title), h('p', {}, q.passage.text)),
-    q.lead && h('p', { class: 'muted' }, u(q.lead)),
-    h('p', { class: 'prompt' }, prompt),
-    q.grid && robotGrid(q.grid),
-    q.code && h('pre', { class: 'code' }, q.code),
-    opts, input && h('div', { class: 'answer-row' }, input, h('button', { class: 'btn primary', onclick: () => submit(input.value) }, u(T.check))),
-    fb,
-    h('div', { class: 'actions' },
-      voice.available() && h('button', { class: 'btn ghost small', onclick: () => voice.speak(q.say ? q.say : `${prompt} ${q.kind === 'mcq' ? q.options.map((o, i) => `${'ABCDE'[i]}. ${t(o.t)}.`).join(' ') : ''}`) }, u(T.listen)),
-      run.mode !== 'test' && helpBtn, nextBtn));
+    askBlock(q, m, seen), ctl.opts, ctl.row, fb, actions);
   mount(h('main', { class: 'wrap narrow' }, progressHead(cur), card));
   if (q.say && voice.available()) voice.speak(q.say);
-  (input || card.querySelector('.opt')).focus({ preventScroll: true });
+  ctl.focus(card);
 }
+
+// ---------- Recursive Guidance Loop: Hint -> Scaffold -> Retry -> Reward ----------
+// Guided answers are practice: they never change mastery. Only the first attempt is graded.
+function miniCard(q, sk, { tag, intro, after }) {
+  const m = M(), seen = new Set(); let done = false;
+  const fb = h('div', { class: 'feedback', role: 'status', 'aria-live': 'polite' }), actions = h('div', { class: 'actions' });
+  const submit = raw => {
+    if (done) return;
+    const res = check(q, raw);
+    if (!res.valid) { fb.className = 'feedback note'; fb.replaceChildren(u(q.kind === 'text' ? T.notWord : T.notAnswer)); return; }
+    done = true; ctl.lock(res.ok, raw, false);
+    after(res, {
+      say: (cls, nodes) => { fb.className = 'feedback ' + cls; fb.replaceChildren(...nodes); },
+      reveal: () => ctl.lock(false, raw, true),
+      next: (label, fn) => { const b = h('button', { class: 'btn primary big', onclick: fn }, label); actions.append(b); b.focus(); },
+    });
+  };
+  const ctl = controls(q, m, seen, submit);
+  const card = h('section', { class: `card q guide s-${sk.strand}` }, h('div', { class: 'eyebrow' }, tag), intro, askBlock(q, m, seen), ctl.opts, ctl.row, fb, actions);
+  return { card, focus: () => ctl.focus(card) };
+}
+const verdictP = (icon, v) => h('p', { class: 'verdict' }, `${icon} ${u(v)}`);
+const hintP = (sk, trap) => h('p', { class: 'hint' }, h('b', {}, `💡 ${u(MSG.hintLbl)}: `), t(hintFor(sk, app.misc, trap).text));
+const nextQuestion = () => step(run.s.next());
+// orig = { q, sk, trap }: the question that was missed at this level. onDone() runs after this level's retry.
+function guide(cur, orig, depth, onDone = nextQuestion) {
+  const sc = scaffoldFor(byId, orig.sk, orig.q, (Date.now() & 0x7fffffff) + depth * 7919);
+  const intro = sc.worked ? h('div', { class: 'example' }, h('div', { class: 'eyebrow' }, `📖 ${u(MSG.worked)}`), h('p', {}, tx(sc.worked, M())))
+    : h('p', { class: 'muted' }, `🌱 ${u(MSG.prereqNote)} · ${t(sc.skill.title)}`);
+  const retry = () => showRetry(cur, orig, depth === 0, onDone);
+  const mc = miniCard(sc.q, sc.skill, { tag: `🪜 ${u(MSG.easier)}`, intro, after: (res, c) => {
+    if (res.ok) { c.say('good', [verdictP('✅', MSG.scaffoldOk), h('p', {}, tx(sc.q.explain, M()))]); return c.next(u(MSG.tryOrig), retry); }
+    if (depth + 1 < MAX_DEPTH) { // the easier question was missed too: one more, simpler level, then back up
+      c.say('try', [verdictP('🤔', MSG.oops), hintP(sc.skill, res.trap)]);
+      return c.next(u(MSG.easier), () => guide(cur, { q: sc.q, sk: sc.skill, trap: res.trap }, depth + 1, retry));
+    }
+    c.reveal(); c.say('try', [verdictP('🌱', MSG.scaffoldNo), h('p', {}, h('b', {}, `${u(T.correctAnswer)}: `), answerText(sc.q)), h('p', {}, tx(sc.q.explain, M()))]);
+    c.next(u(MSG.tryOrig), retry);
+  } });
+  mount(h('main', { class: 'wrap narrow' }, progressHead(cur), mc.card)); mc.focus();
+}
+function showRetry(cur, o, top, onDone) {
+  const mc = miniCard(o.q, o.sk, { tag: `🔁 ${u(MSG.retry)}`, intro: null, after: (res, c) => {
+    const label = u(top ? T.next : MSG.tryOrig);
+    if (res.ok) {
+      const lines = [verdictP('🎉', top ? MSG.comeback : MSG.scaffoldOk)];
+      if (top) { const n = comebackReward(state); persist(); confetti(34); lines.push(h('p', {}, h('span', { class: 'star-pop' }, `+${n} ⭐`))); }
+      lines.push(h('p', {}, tx(o.q.explain, M())));
+      c.say('good', lines); return c.next(label, onDone);
+    }
+    c.reveal();
+    const lines = [verdictP('🌱', MSG.notYet), h('p', {}, h('b', {}, `${u(T.correctAnswer)}: `), answerText(o.q)), h('p', {}, tx(o.q.explain, M()))];
+    const rem = res.trap && app.misc[res.trap]; if (rem) lines.push(h('p', { class: 'remedy' }, h('b', {}, `${u(T.remember)}: `), t(rem)));
+    c.say('try', lines); c.next(label, onDone);
+  } });
+  mount(h('main', { class: 'wrap narrow' }, progressHead(cur), mc.card)); mc.focus();
+}
+
 function finish() {
   const st = run.s.finish();
   const rw = settleNow({ stats: st, completed: true }); persist();
