@@ -3,6 +3,7 @@ import { L } from '../core/i18n.js';
 
 export const T = {
   app: L('KS-LEARN', 'KS-LEARN'),
+  tagline: L('Small beginnings. Lasting growth.', 'छोटी शुरुआत, पक्की सीख'),
   setupTitle: L('Set up the learner', 'शिक्षार्थी की सेटिंग'),
   setupNote: L('This app is for one child. Everything is stored on this device only. A parent should fill this in.', 'यह ऐप एक बच्चे के लिए है। सारी जानकारी केवल इसी डिवाइस पर रहती है। यह फ़ॉर्म माता-पिता भरें।'),
   nickname: L('Child\'s nickname', 'बच्चे का उपनाम'),

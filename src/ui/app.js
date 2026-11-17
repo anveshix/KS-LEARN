@@ -13,6 +13,7 @@ import { fmt } from '../content/kit.js';
 import { T, OFFSCREEN } from './labels.js';
 import { h } from './dom.js';
 import { orderWidget, matchWidget } from './widgets.js';
+import { MARK_URI } from './mark.js';
 import { check } from '../core/check.js';
 import { hintFor, scaffoldFor, MAX_DEPTH, MSG } from '../core/guidance.js';
 
@@ -117,10 +118,16 @@ function header() {
 const ICON = { m: '➗', e: '🔤', h: 'अ', s: '🔬', l: '🧩', c: '💻', g: '🌏', t: '🏛️' };
 const offscreenToday = () => OFFSCREEN[Math.floor(now().getTime() / 864e5) % OFFSCREEN.length];
 
+// ---------- brand ----------
+// The mark arrives as a data URI so the page still makes no requests; the wordmark is
+// real text, so it stays selectable, translatable and readable by a screen reader.
+const markElement = (cls = 'mark') => h('span', { class: cls, role: 'img', 'aria-label': T.app.en, style: `background-image:url("${MARK_URI}")` });
+const wordmark = () => h('span', { class: 'wordmark', 'aria-hidden': 'true' }, 'KS', h('i', {}, '-'), 'LEARN');
+
 // ---------- setup ----------
 function viewSetup() {
   const f = h('form', { class: 'card form', id: 'setup' },
-    h('h1', {}, u(T.setupTitle)), h('p', { class: 'muted' }, ui(T.setupNote, 'bi')),
+    h('h1', {}, u(T.setupTitle)),
     h('label', { for: 'f-name' }, ui(T.nickname, 'bi')), h('input', { id: 'f-name', required: true, maxlength: '20', autocomplete: 'off' }),
     h('label', { for: 'f-cls' }, ui(T.classIn, 'bi')),
     h('select', { id: 'f-cls' }, [3, 4, 5, 6, 7, 8].map(c => h('option', { value: String(c), selected: c === 4 }, String(c)))),
@@ -144,7 +151,13 @@ function viewSetup() {
     };
     rebuildSkills(); ensureState(skills, state.skills, state.profile, d); persist(); go('home');
   });
-  mount(h('main', { class: 'wrap' }, f, restoreCard()));
+  const welcome = h('header', { class: 'welcome' },
+    markElement('mark mark-lg'),
+    h('div', { class: 'welcome-text' },
+      wordmark(),
+      h('p', { class: 'tagline' }, u(T.tagline)),
+      h('p', { class: 'muted small welcome-note' }, ui(T.setupNote, 'bi'))));
+  mount(h('main', { class: 'wrap' }, welcome, f, restoreCard()));
 }
 
 // ---------- rewards UI ----------

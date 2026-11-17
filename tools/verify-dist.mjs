@@ -20,7 +20,7 @@ for (const f of ['dist/ks-learn.html', 'dist/pwa/index.html']) {
   for (const h of hosts) need(['phet.colorado.edu', 'www.w3.org'].includes(h), `${f}: unexpected host ${h}`);
   need(statSync(f).size < 900 * 1024, `${f}: larger than 900 KB`);
 }
-for (const f of ['manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', '_headers']) need(existsSync(`dist/pwa/${f}`), `dist/pwa/${f} missing`);
+for (const f of ['manifest.webmanifest', 'sw.js', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'og-image.png', '_headers']) need(existsSync(`dist/pwa/${f}`), `dist/pwa/${f} missing`);
 const man = JSON.parse(readFileSync('dist/pwa/manifest.webmanifest', 'utf8'));
 need(man.icons.some(i => i.sizes === '192x192' && i.type === 'image/png') && man.icons.some(i => i.sizes === '512x512'), 'manifest needs 192 and 512 PNG icons');
 const sw = readFileSync('dist/pwa/sw.js', 'utf8');
