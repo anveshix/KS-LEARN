@@ -16,6 +16,8 @@ import { orderWidget, matchWidget } from './widgets.js';
 import { MARK_URI } from './mark.js';
 import { check } from '../core/check.js';
 import { hintFor, scaffoldFor, MAX_DEPTH, MSG } from '../core/guidance.js';
+import { createConsentFlow } from './consent-ui.js';
+import { verifyConsent, purposeOn, setChildDetails } from '../core/consent.js';
 
 // ---------- environment ----------
 const mem = {};
@@ -59,6 +61,34 @@ function toast(msg, ms = 2600) {
   document.body.append(el); setTimeout(() => el.remove(), ms);
 }
 
+const flow = createConsentFlow({
+  getState: () => state,
+  setConsent(record) { state.consent = record; persist(); },
+  setLock(lock) { state.lock = lock; persist(); },
+  persist, mount, go, render,
+  toast: msg => toast(msg),
+  offerFile: (name, text) => offerFile(name, text),
+  brand: () => h('span', { class: 'brand-lockup' }, markElement('mark'), wordmark()),
+  now: () => now(),
+  onComplete: consentDone,
+});
+
+// ---------- parental consent (DPDP) ----------
+// The flow is injected with storage, routing and file export so the consent screens stay
+// free of hidden side effects. Every entry point re-checks the record with verifyConsent().
+function consentDone(record) {
+  state.consent = record;
+  persist();
+  if (!state.profile) return viewSetup();               // first run: continue to the child profile
+  // A renewal started from the Parent area returns there; a gate opened on the way in goes home.
+  if (['consent', 'parent'].includes((location.hash || '').slice(1))) {
+    parentSeen = Date.now();
+    return go('parent');
+  }
+  toast(ui(T.consentOk, 'bi'));
+  go('home');
+}
+
 // ---------- speech ----------
 const voice = (() => {
   const synth = window.speechSynthesis;
@@ -76,8 +106,10 @@ const voice = (() => {
     return out.map(s => ({ ...s, text: s.text.replace(/[()]/g, ' ').trim() })).filter(s => /[\p{L}\p{N}]/u.test(s.text));
   };
   return {
-    available: () => !!(synth || ttsCap),
+    // Read-aloud is an optional purpose on the consent record. Without it, no voice button appears.
+    available: () => !!(synth || ttsCap) && purposeOn(state.consent, 'readaloud'),
     speak(text) {
+      if (!purposeOn(state.consent, 'readaloud')) return;
       try {
         if (synth) {
           synth.cancel();
@@ -109,7 +141,8 @@ function nav(active) {
 function header() {
   const p = state.profile, cls = classNow(p, now());
   return h('header', { class: 'top' },
-    h('div', { class: 'brand' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, Array.from(p.name)[0].toUpperCase()), h('div', {}, h('b', {}, p.name), h('small', {}, `${u(T.classN)} ${cls}`))),
+    h('div', { class: 'brand' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, Array.from(p.name)[0].toUpperCase()),
+      h('div', {}, h('b', {}, p.name), h('small', {}, `${u(T.classN)} ${cls}`))),
     h('div', { class: 'pills' },
       h('span', { class: 'pill-stat', title: `${u(T.level)} ${levelInfo(state.stars || 0).index + 1}` }, h('span', { class: 'ico', 'aria-hidden': 'true' }, levelInfo(state.stars || 0).level.icon)),
       h('span', { class: 'pill-stat', title: u(T.streak) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, '🔥'), String(streak(state.days, today(), addDays))),
@@ -144,11 +177,15 @@ function viewSetup() {
     const d = now(), name = f.querySelector('#f-name').value.trim().slice(0, 20), pin = f.querySelector('#f-pin').value;
     const err = f.querySelector('#f-err');
     if (!name || !/^\d{4}$/.test(pin)) { err.textContent = ui(name ? T.pinNeeded : T.nameNeeded, 'bi'); err.hidden = false; return; }
+    const consent = state.consent; // the guardian's record is never dropped by this form
     state = freshState();
+    state.consent = consent;
     state.profile = {
       name, cls: +f.querySelector('#f-cls').value, ay0: academicYear(d), lang: f.querySelector('#f-lang').value,
       dailyQ: +f.querySelector('#f-daily').value, pin: makePin(pin), off: [], autoRead: false, created: today(),
     };
+    // The consent record names the class it was given for; keep it true when the profile is made.
+    state.consent = setChildDetails(state.consent, { cls: state.profile.cls }, d);
     rebuildSkills(); ensureState(skills, state.skills, state.profile, d); persist(); go('home');
   });
   const welcome = h('header', { class: 'welcome' },
@@ -157,7 +194,11 @@ function viewSetup() {
       wordmark(),
       h('p', { class: 'tagline' }, u(T.tagline)),
       h('p', { class: 'muted small welcome-note' }, ui(T.setupNote, 'bi'))));
-  mount(h('main', { class: 'wrap' }, welcome, f, restoreCard()));
+  const consent = state.consent;
+  mount(h('main', { class: 'wrap' }, welcome,
+    consent && h('p', { class: 'consent-chip' }, h('span', { class: 'chip chip-ok' }, ui(T.consentDone, 'bi')),
+      h('span', { class: 'muted small' }, `${consent.guardian.name} · ${consent.reconsentBy}`)),
+    f, restoreCard()));
 }
 
 // ---------- rewards UI ----------
@@ -234,7 +275,9 @@ function viewHome() {
   const tStreak = h('section', { class: 'card tile b-half' }, h('div', { class: 'eyebrow' }, u(T.streak)), h('span', { class: 'big-ico', 'aria-hidden': 'true' }, h('span', { class: 'flame' }, '🔥')), h('div', { class: 'big-n' }, String(sDays)));
   const tStars = h('section', { class: 'card tile b-half' }, h('div', { class: 'eyebrow' }, u(T.stars)), h('span', { class: 'big-ico', 'aria-hidden': 'true' }, '⭐'), h('div', { class: 'big-n' }, String(state.stars || 0)));
   mount(header(), h('main', { class: 'wrap' }, !storage.ok && h('p', { class: 'warn' }, u(T.storageWarn)), boot.recovered && h('p', { class: 'warn' }, u(T.recovered)),
-    h('h1', { class: 'hello' }, `${u(T.hello)}, ${p.name}`),
+    h('div', { class: 'hello-row' },
+      h('h1', { class: 'hello' }, `${u(T.hello)}, ${p.name}`),
+      h('span', { class: 'program-chip' }, ui(T.program, 'bi'))),
     h('div', { class: 'bento' }, mission, levelTile(), tStreak, tStars, td.done ? off : null, strands, test, td.done ? null : off, badgeShelf())), nav('home'));
   if (!isEmpty(pending)) celebrate(pending);
 }
@@ -484,7 +527,7 @@ function viewMap() {
           h('span', { class: `pill ${status}` }, u(T[status])),
           bar(s ? s.p : 0, 'thin')));
     }))));
-  mount(header(), h('main', { class: 'wrap' }, tabs, groups), nav('map'));
+  mount(header(), h('main', { class: 'wrap' }, h('h1', { class: 'page-h' }, u(T.map)), tabs, groups), nav('map'));
 }
 function skillSheet(sk) {
   const s = state.skills[sk.id], ok = unlocked(sk, state.skills);
@@ -567,7 +610,7 @@ function viewParent() {
   const askCard = h('section', { class: 'card' }, h('div', { class: 'eyebrow' }, u(T.asks)),
     asks.length ? h('ul', { class: 'asks' }, asks.map(a => h('li', {}, h('span', {}, `${a.d} · ${byId[a.s] ? t(byId[a.s].title) : a.s}: ${a.q}`),
       h('button', { class: 'btn small', onclick: () => { a.done = true; persist(); viewParent(); } }, u(T.resolved))))) : h('p', { class: 'muted' }, u(T.noAsks)));
-  mount(header(), h('main', { class: 'wrap' }, week, helpCard, askCard, mist, road, settingsCard(), pinCard(), packsCard(), backupCard(),
+  mount(header(), h('main', { class: 'wrap' }, h('h1', { class: 'page-h' }, u(T.parent)), week, flow.card(), helpCard, askCard, mist, road, settingsCard(), pinCard(), packsCard(), backupCard(),
     h('button', { class: 'btn ghost', onclick: () => { parentOpen = false; go('home'); } }, u(T.lockParent))), nav('parent'));
 }
 function settingsCard() {
@@ -580,13 +623,18 @@ function settingsCard() {
     h('label', { for: 's-cls' }, u(T.classIn)),
     h('select', { id: 's-cls' }, [3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(c => h('option', { value: String(c), selected: clsNow === c }, String(c)))),
     h('fieldset', {}, h('legend', {}, u(T.subjects)), STRANDS.map(s => h('label', { class: 'check' }, h('input', { type: 'checkbox', value: s, checked: !(p.off || []).includes(s) }), strandName(s)))),
-    h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 's-read', checked: !!p.autoRead }), t(L('Read explanations aloud after a wrong answer', 'गलत उत्तर के बाद व्याख्या पढ़कर सुनाएँ'))),
+    h('label', { class: 'check' + (purposeOn(state.consent, 'readaloud') ? '' : ' off') },
+      h('input', { type: 'checkbox', id: 's-read', checked: !!p.autoRead, disabled: !purposeOn(state.consent, 'readaloud') }),
+      t(purposeOn(state.consent, 'readaloud')
+        ? L('Read explanations aloud after a wrong answer', 'गलत उत्तर के बाद व्याख्या पढ़कर सुनाएँ')
+        : L('Read-aloud is off because this purpose was not consented to.', 'पढ़कर सुनाना बंद है क्योंकि इस उद्देश्य की सहमति नहीं दी गई।'))),
     h('button', { class: 'btn primary', type: 'submit' }, u(T.save)));
   f.addEventListener('submit', e => {
     e.preventDefault();
     p.lang = f.querySelector('#s-lang').value; p.dailyQ = +f.querySelector('#s-daily').value;
     const c = +f.querySelector('#s-cls').value;
     if (c !== clsNow) { p.cls = c; p.ay0 = academicYear(now()); } // the chosen class is the class for the session running today
+    state.consent = setChildDetails(state.consent, { cls: p.cls }, now());
     p.off = [...f.querySelectorAll('fieldset input')].filter(x => !x.checked).map(x => x.value);
     if (p.off.length === STRANDS.length) p.off = [];
     p.autoRead = f.querySelector('#s-read').checked;
@@ -683,12 +731,21 @@ function restoreCard() {
 function go(route) { if (location.hash !== '#' + route) location.hash = route; else render(); }
 function render() {
   voice.stop();
-  if (!state.profile) return viewSetup();
+  if (!state.profile) {
+    // First run: the guardian sees the notice and records consent before the child profile.
+    // A reload between the two steps resumes at the profile instead of repeating the notice.
+    return verifyConsent(state.consent, now()).ok ? viewSetup() : flow.start();
+  }
   if (run) return; // never navigate away from a running session by hash
   const r = (location.hash || '#home').slice(1);
   document.documentElement.lang = M() === 'hi' ? 'hi' : 'en';
   document.querySelectorAll('.sheet').forEach(x => x.remove());
-  if (r !== 'parent' || Date.now() - parentSeen > PARENT_IDLE_MS) parentOpen = false; // leaving the parent area locks it
+  if ((r !== 'parent' && r !== 'consent') || Date.now() - parentSeen > PARENT_IDLE_MS) parentOpen = false; // leaving the parent area locks it
+  // No consent, a withdrawn record, a damaged digest or a year-old record: the learning
+  // screens are closed until a guardian deals with it. No exceptions on any route.
+  const consent = verifyConsent(state.consent, now());
+  if (!consent.ok) return flow.renew(consent);
+  if (r === 'consent') return flow.renew(consent);
   if (r === 'map') return viewMap();
   if (r === 'parent') return viewParent();
   return viewHome();

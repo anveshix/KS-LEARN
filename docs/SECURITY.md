@@ -8,6 +8,8 @@
 | Saved progress | Damaged or hand-edited backup / storage | `sanitize()` rebuilds state field by field with type, range and size limits; unknown keys (including `__proto__`) are dropped. Unreadable storage is copied to `kslearn.v2.damaged`, never overwritten. Restore takes two taps and keeps one undo copy. Files over 3 MB are refused. |
 | Skill content | Hostile content pack | Every pack is validated (shape, sizes, ids, prerequisites, loops, bilingual text, answer key) when added **and again on every load**, including packs that arrive inside a backup. |
 | Parent area | Child opening reports/settings | 4-digit PIN stored as a salted, 4000-round SHA-256 hash; 5 wrong tries lock it for 1 minute, doubling to 15; locks when left or idle 5 minutes. |
+| Consent record | Child faking, or an adult silently editing, parental consent | Guardian ceremony (one-time token typed back) or an issuer-signed school token; canonical SHA-256 digest over every field; required purposes enforced; 12-month re-consent; damaged record closes all learning routes. See [DPDP.md](DPDP.md). |
+| Read-aloud / speaking practice | Voice data leaving the device | Off unless the guardian consented to that purpose; the device's own TTS is used; no audio is recorded, stored or sent. |
 | Installed PWA | Stale or poisoned cache | Service worker serves same-origin GET only, cache name carries a content hash, old caches are deleted on update. |
 | Supply chain | Malicious dependency | Zero runtime dependencies. One build tool (esbuild, exact version, lockfile, `npm ci --ignore-scripts`, `npm audit` in CI). CI token is read-only. |
 

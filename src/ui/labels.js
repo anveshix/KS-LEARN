@@ -135,6 +135,9 @@ export const T = {
   packAdded: L('skill(s) added', 'कौशल जोड़े गए'),
   removePack: L('Remove', 'हटाएँ'),
   close: L('Close', 'बंद करें'),
+  program: L('SUPER GRADE', 'सुपर ग्रेड'),
+  consentDone: L('Guardian consent recorded', 'अभिभावक की सहमति दर्ज'),
+  consentOk: L('Consent recorded. Learning is open.', 'सहमति दर्ज। सीखना खुला है।'),
   enough: L('That is plenty for today. Rest your eyes and try the off-screen challenge.', 'आज के लिए इतना काफ़ी है। आँखों को आराम दीजिए और बिना-स्क्रीन चुनौती कीजिए।'),
 };
 

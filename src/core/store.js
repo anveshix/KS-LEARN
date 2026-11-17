@@ -4,12 +4,13 @@
 // the state field by field, so a damaged or hand-edited file cannot crash the app,
 // smuggle unexpected keys or make it loop over absurd sizes.
 import { BADGE_IDS, LEVELS, freshRw } from './rewards.js';
+import { sanitizeConsent } from './consent.js';
 export const STORE_KEY = 'kslearn.v2';
 export const VERSION = 2;
 export const MAX_IMPORT_BYTES = 3 * 1024 * 1024;
 const LIMITS = { log: 6000, days: 4000, asks: 60, packs: 20, skills: 3000 };
 
-export const freshState = () => ({ v: VERSION, profile: null, skills: {}, log: [], days: {}, stars: 0, rw: freshRw(0), asks: [], packs: [], lock: { f: 0, until: 0 } });
+export const freshState = () => ({ v: VERSION, profile: null, consent: null, skills: {}, log: [], days: {}, stars: 0, rw: freshRw(0), asks: [], packs: [], lock: { f: 0, until: 0 } });
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/, SKILL_ID = /^[a-z]\.[a-z0-9_]{1,40}$/, WORD = /^[a-z0-9_]{1,40}$/;
 const STRANDS = ['m', 'e', 'h', 's', 'l', 'c', 'g', 't'], LANGS = ['bi', 'hi', 'en'];
@@ -56,6 +57,9 @@ export function sanitize(raw) {
   if (!obj(raw) || raw.v !== VERSION || !obj(raw.skills)) return null;
   const st = freshState();
   st.profile = profile(raw.profile);
+  // A consent record is kept even when its digest no longer matches: the app must be able
+  // to say "this record is damaged" and ask again, instead of silently dropping it.
+  st.consent = sanitizeConsent(raw.consent);
   for (const id of Object.keys(raw.skills).slice(0, LIMITS.skills)) { if (!SKILL_ID.test(id)) continue; const s = skillState(raw.skills[id]); if (s) st.skills[id] = s; }
   if (Array.isArray(raw.log)) for (const r of raw.log.slice(-LIMITS.log)) {
     if (!obj(r) || !date(r.d) || !SKILL_ID.test(r.s)) continue;
