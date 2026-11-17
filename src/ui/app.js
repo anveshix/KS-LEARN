@@ -7,7 +7,7 @@ import { createSession, streak } from '../core/session.js';
 import { load, save, freshState, exportText, importText, keepUndo, readUndo, STORE_KEY, MAX_IMPORT_BYTES } from '../core/store.js';
 import { makePin, verifyPin, needsUpgrade, validPin, recordAttempt, lockedFor } from '../core/pin.js';
 import { LEVELS, BADGES, levelInfo, startReward, comebackReward, settle, isEmpty } from '../core/rewards.js';
-import { weekSummary, topMistakes, needsHelp, roadmap, skillStatus } from '../core/insights.js';
+import { weekSummary, topMistakes, needsHelp, roadmap, skillStatus, learningModel } from '../core/insights.js';
 import { packToSkills, validatePack } from '../core/packs.js';
 import { fmt } from '../content/kit.js';
 import { T, OFFSCREEN } from './labels.js';
@@ -15,7 +15,10 @@ import { h } from './dom.js';
 import { orderWidget, matchWidget } from './widgets.js';
 import { MARK_URI } from './mark.js';
 import { check } from '../core/check.js';
-import { hintFor, scaffoldFor, MAX_DEPTH, MSG } from '../core/guidance.js';
+import { hintFor, MSG } from '../core/guidance.js';
+import { buildLadder, evidenceFor, FADE, LABEL } from '../core/scaffold.js';
+import { guessRate } from '../core/mastery.js';
+import { refit } from '../core/bkt.js';
 import { createConsentFlow } from './consent-ui.js';
 import { createAccountFlow } from './account-ui.js';
 import { verifyConsent, purposeOn, setChildDetails } from '../core/consent.js';
@@ -42,6 +45,9 @@ function rebuildSkills() {
   state.packs = kept;
   skills = all;
   byId = Object.fromEntries(all.map(s => [s.id, s]));
+  // Restores and older saves may predate the adaptation counters: re-derive them from the
+  // answer log where the log has the estimate each answer was given at.
+  if (state.skills) refit(state.skills, state.log, { onlyMissing: true });
 }
 rebuildSkills();
 const app = { get skills() { return skills; }, get byId() { return byId; }, get state() { return state; }, now, day: today, misc: MISC };
@@ -457,8 +463,14 @@ function question(cur) {
       if (res.events.includes('stuck')) lines.push(h('p', { class: 'muted' }, u(T.stuck)));
       fb.className = 'feedback try'; fb.replaceChildren(...lines);
       nextBtn.remove();
-      const go = h('button', { class: 'btn primary big pulse', onclick: () => guide(cur, { q, sk, trap: res.trap }, 0) }, u(MSG.easier));
-      actions.append(go); go.focus();
+      // Support fades with the estimate: a learner near mastery gets the hint and a retry first;
+      // a learner who is still building gets the ladder first. Both are always one tap away.
+      const s = state.skills[sk.id], p = s ? s.p : 0.2, high = p >= FADE.high;
+      const retryBtn = h('button', { class: `btn ${high ? 'primary pulse' : 'ghost'} big`, onclick: () => showRetry(cur, { q, sk, trap: res.trap }, true) }, u(MSG.tryAgain));
+      const learnBtn = h('button', { class: `btn ${high ? 'ghost' : 'primary pulse'} big`, onclick: () => guide(cur, { q, sk, trap: res.trap }, high) }, u(MSG.easier));
+      actions.append(high ? retryBtn : learnBtn, high ? learnBtn : retryBtn);
+      lines.push(h('p', { class: 'muted small' }, u(high ? LABEL.fadeRetry : p >= FADE.low ? LABEL.fadeSingle : LABEL.fadeFull)));
+      (high ? retryBtn : learnBtn).focus();
       if (voice.available() && state.profile.autoRead) voice.speak(fb.textContent);
       return;
     }
@@ -480,10 +492,11 @@ function question(cur) {
   ctl.focus(card);
 }
 
-// ---------- Recursive Guidance Loop: Hint -> Scaffold -> Retry -> Reward ----------
-// Guided answers are practice: they never change mastery. Only the first attempt is graded.
+// ---------- Recursive Scaffolding: Hint -> Scaffold -> Retry -> Reward ----------
+// Scaffold answers are practice with support: they move the BKT estimate with a weight
+// below 1, but only the first attempt is graded. The ladder fades as mastery grows.
 function miniCard(q, sk, { tag, intro, after }) {
-  const m = M(), seen = new Set(); let done = false;
+  const m = M(), seen = new Set(); let done = false; const t0 = Date.now();
   const fb = h('div', { class: 'feedback', role: 'status', 'aria-live': 'polite' }), actions = h('div', { class: 'actions' });
   const submit = raw => {
     if (done) return;
@@ -491,6 +504,7 @@ function miniCard(q, sk, { tag, intro, after }) {
     if (!res.valid) { fb.className = 'feedback note'; fb.replaceChildren(u(q.kind === 'text' ? T.notWord : T.notAnswer)); return; }
     done = true; ctl.lock(res.ok, raw, false);
     after(res, {
+      ms: Math.max(0, Date.now() - t0),
       say: (cls, nodes) => { fb.className = 'feedback ' + cls; fb.replaceChildren(...nodes); },
       reveal: () => ctl.lock(false, raw, true),
       next: (label, fn) => { const b = h('button', { class: 'btn primary big', onclick: fn }, label); actions.append(b); b.focus(); },
@@ -503,25 +517,43 @@ function miniCard(q, sk, { tag, intro, after }) {
 const verdictP = (icon, v) => h('p', { class: 'verdict' }, `${icon} ${u(v)}`);
 const hintP = (sk, trap) => h('p', { class: 'hint' }, h('b', {}, `💡 ${u(MSG.hintLbl)}: `), t(hintFor(sk, app.misc, trap).text));
 const nextQuestion = () => step(run.s.next());
-// orig = { q, sk, trap }: the question that was missed at this level. onDone() runs after this level's retry.
-function guide(cur, orig, depth, onDone = nextQuestion) {
-  const sc = scaffoldFor(byId, orig.sk, orig.q, (Date.now() & 0x7fffffff) + depth * 7919);
-  const intro = sc.worked ? h('div', { class: 'example' }, h('div', { class: 'eyebrow' }, `📖 ${u(MSG.worked)}`), h('p', {}, tx(sc.worked, M())))
-    : h('p', { class: 'muted' }, `🌱 ${u(MSG.prereqNote)} · ${t(sc.skill.title)}`);
-  const retry = () => showRetry(cur, orig, depth === 0, onDone);
-  const mc = miniCard(sc.q, sc.skill, { tag: `🪜 ${u(MSG.easier)}`, intro, after: (res, c) => {
-    if (res.ok) { c.say('good', [verdictP('✅', MSG.scaffoldOk), h('p', {}, tx(sc.q.explain, M()))]); return c.next(u(MSG.tryOrig), retry); }
-    if (depth + 1 < MAX_DEPTH) { // the easier question was missed too: one more, simpler level, then back up
-      c.say('try', [verdictP('🤔', MSG.oops), hintP(sc.skill, res.trap)]);
-      return c.next(u(MSG.easier), () => guide(cur, { q: sc.q, sk: sc.skill, trap: res.trap }, depth + 1, retry));
+
+// The ladder is built once per miss, so its rungs are stable while the child works through them.
+// `forced` is used only when a learner near mastery asks to see the steps anyway.
+function guide(cur, orig, forced = false, onDone = nextQuestion) {
+  const s = state.skills[orig.sk.id];
+  const ladder = buildLadder({
+    byId, skill: orig.sk, missed: orig.q, misc: app.misc, states: state.skills, trap: orig.trap,
+    seed: (Date.now() & 0x7fffffff), mastery: forced ? 0.2 : (s ? s.p : 0.2),
+  });
+  if (!ladder.steps.length) return showRetry(cur, orig, true, onDone);
+  rung(cur, orig, ladder, 0, onDone);
+}
+function rung(cur, orig, ladder, idx, onDone) {
+  const step = ladder.steps[idx], last = idx >= ladder.steps.length - 1;
+  const intro = step.worked
+    ? h('div', { class: 'example' }, h('div', { class: 'eyebrow' }, `📖 ${u(MSG.worked)}`), h('p', {}, tx(step.worked, M())))
+    : h('p', { class: 'muted' }, `🌱 ${u(MSG.prereqNote)} · ${t(step.skill.title)}`);
+  const retry = () => showRetry(cur, orig, true, onDone);
+  const mc = miniCard(step.q, step.skill, { tag: `🪜 ${u(step.note)} · ${idx + 1}/${ladder.steps.length}`, intro, after: (res, c) => {
+    run.s.assisted({ skill: step.skill.id, ok: res.ok, guess: guessRate(step.q), level: step.level, ms: c.ms, weight: step.evidence });
+    persist();
+    if (res.ok) { c.say('good', [verdictP('✅', MSG.scaffoldOk), h('p', {}, tx(step.q.explain, M()))]); return c.next(u(MSG.tryOrig), retry); }
+    if (!last) { // this rung was missed too: one step lower, then back up to the original
+      c.say('try', [verdictP('🤔', MSG.oops), hintP(step.skill, res.trap)]);
+      return c.next(u(MSG.easier), () => rung(cur, orig, ladder, idx + 1, onDone));
     }
-    c.reveal(); c.say('try', [verdictP('🌱', MSG.scaffoldNo), h('p', {}, h('b', {}, `${u(T.correctAnswer)}: `), answerText(sc.q)), h('p', {}, tx(sc.q.explain, M()))]);
+    c.reveal();
+    c.say('try', [verdictP('🌱', MSG.scaffoldNo), h('p', {}, h('b', {}, `${u(T.correctAnswer)}: `), answerText(step.q)), h('p', {}, tx(step.q.explain, M()))]);
     c.next(u(MSG.tryOrig), retry);
   } });
-  mount(h('main', { class: 'wrap narrow' }, progressHead(cur), mc.card)); mc.focus();
+  mount(h('main', { class: 'wrap narrow' }, progressHead(cur), mc.card));
+  mc.focus();
 }
-function showRetry(cur, o, top, onDone) {
+function showRetry(cur, o, top, onDone = nextQuestion) {
   const mc = miniCard(o.q, o.sk, { tag: `🔁 ${u(MSG.retry)}`, intro: null, after: (res, c) => {
+    run.s.assisted({ skill: o.sk.id, ok: res.ok, guess: guessRate(o.q), level: 4, ms: c.ms, weight: evidenceFor('retry') });
+    persist();
     const label = u(top ? T.next : MSG.tryOrig);
     if (res.ok) {
       const lines = [verdictP('🎉', top ? MSG.comeback : MSG.scaffoldOk)];
@@ -643,6 +675,20 @@ function viewParent() {
       h('div', {}, h('b', {}, wk.n ? `${Math.round(wk.acc * 100)}%` : '–'), h('small', {}, u(T.accuracy))),
       h('div', {}, h('b', {}, wk.n ? `${wk.avgSec.toFixed(0)}s` : '–'), h('small', {}, u(T.avgTime)))),
     h('p', { class: 'muted small' }, u(T.talk)));
+  // The same BKT estimate the planner uses, shown without grades or rankings.
+  const lm = learningModel(skills, state.skills);
+  const model = h('section', { class: 'card' }, h('div', { class: 'eyebrow' }, u(L('How the learning model sees it', 'सीखने का मॉडल क्या देखता है'))),
+    h('div', { class: 'big-stats' },
+      h('div', {}, h('b', {}, lm.seen ? `${Math.round(lm.p * 100)}%` : '–'), h('small', {}, u(L('average mastery estimate', 'औसत महारत अनुमान')))),
+      h('div', {}, h('b', {}, String(lm.seen)), h('small', {}, u(L('skills practised', 'अभ्यास किए कौशल')))),
+      h('div', {}, h('b', {}, `${Math.round(lm.helpRate * 100)}%`), h('small', {}, u(L('answers after help', 'मदद के बाद उत्तर')))),
+      h('div', {}, h('b', {}, String(lm.stuck)), h('small', {}, u(L('need a re-teach', 'दोबारा सिखाने चाहिए'))))),
+    h('p', { class: 'muted small' }, u(L(
+      'Each skill has its own estimate. Right answers raise it, misses lower it, and an answer given after a hint or a worked step counts for less. The number is a guide for practice, never a grade or a rank.',
+      'हर कौशल का अपना अनुमान है। सही उत्तर उसे बढ़ाते हैं, गलतियाँ घटाती हैं, और संकेत या हल किए उदाहरण के बाद दिया उत्तर कम गिना जाता है। यह संख्या अभ्यास का मार्गदर्शन है, अंक या रैंक नहीं।'))),
+    h('p', { class: 'muted small' }, u(L(
+      `${lm.personal} skills have their own error and learning rates from this child's answers; the rest still use the classroom starting values.`,
+      `${lm.personal} कौशलों की चूक-दर और सीखने की दर इस बच्चे के उत्तरों से बनी है; बाकी अभी कक्षा के शुरुआती मानों का उपयोग करते हैं।`))));
   const rm = roadmap(skills, state.skills, p, d, day);
   const road = h('section', { class: 'card' }, h('div', { class: 'eyebrow' }, u(T.roadmap)), h('p', { class: 'muted small' }, u(T.roadmapNote)),
     h('div', { class: 'road' }, rm.rows.map(r => h('div', { class: 'road-row' + (r.current ? ' current' : '') },
@@ -662,7 +708,7 @@ function viewParent() {
   const askCard = h('section', { class: 'card' }, h('div', { class: 'eyebrow' }, u(T.asks)),
     asks.length ? h('ul', { class: 'asks' }, asks.map(a => h('li', {}, h('span', {}, `${a.d} · ${byId[a.s] ? t(byId[a.s].title) : a.s}: ${a.q}`),
       h('button', { class: 'btn small', onclick: () => { a.done = true; persist(); viewParent(); } }, u(T.resolved))))) : h('p', { class: 'muted' }, u(T.noAsks)));
-  mount(header(), h('main', { class: 'wrap' }, h('h1', { class: 'page-h' }, u(T.parent)), accountFlow.card(), flow.card(), week, helpCard, askCard, mist, road, settingsCard(), pinCard(), packsCard(), backupCard(),
+  mount(header(), h('main', { class: 'wrap' }, h('h1', { class: 'page-h' }, u(T.parent)), accountFlow.card(), flow.card(), week, model, helpCard, askCard, mist, road, settingsCard(), pinCard(), packsCard(), backupCard(),
     h('button', { class: 'btn ghost', onclick: () => { parentOpen = false; go('home'); } }, u(T.lockParent))), nav('parent'));
 }
 function settingsCard() {

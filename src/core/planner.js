@@ -1,6 +1,7 @@
 // Planner: which class the learner is in today, what is unlocked, what is due,
 // and the day's mission. The class advances by itself every April (2026 -> 2030).
 import { newSkillState } from './mastery.js';
+import { priority, retention, paramsOf } from './bkt.js';
 
 export const STRANDS = ['m', 'e', 'h', 's', 'l', 'c', 'g', 't'];
 export const academicYear = d => (d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1);
@@ -22,8 +23,28 @@ export function frontier(skills, st, strand, cls) {
   const list = within.length ? within : open;
   return list.slice().sort((a, b) => a.grade - b.grade || skills.indexOf(a) - skills.indexOf(b));
 }
-export const dueReviews = (skills, st, day) =>
-  skills.filter(sk => st[sk.id] && st[sk.id].m && st[sk.id].due && st[sk.id].due <= day).sort((a, b) => (st[a.id].due < st[b.id].due ? -1 : 1));
+// Within the same class, practise the skill whose estimate is furthest from secure first.
+// This is the zone of proximal development: a skill at p≈0.5 gains more from one question
+// than a brand-new skill at p=0.2 or a nearly-known one at p=0.9.
+export const rankFrontier = (skills, st, strand, cls) => frontier(skills, st, strand, cls)
+  .slice().sort((a, b) => a.grade - b.grade
+    || priority(st[b.id].p, paramsOf(st[b.id]).learn) - priority(st[a.id].p, paramsOf(st[a.id]).learn)
+    || skills.indexOf(a) - skills.indexOf(b));
+
+// Due reviews are ordered by predicted recall today, so the most forgotten skill comes first.
+export const dueReviews = (skills, st, day, today = day) =>
+  skills.filter(sk => st[sk.id] && st[sk.id].m && st[sk.id].due && st[sk.id].due <= day)
+    .sort((a, b) => {
+      const ra = retention(st[a.id].p, gapDays(st[a.id].last, today), paramsOf(st[a.id]));
+      const rb = retention(st[b.id].p, gapDays(st[b.id].last, today), paramsOf(st[b.id]));
+      return ra - rb || (st[a.id].due < st[b.id].due ? -1 : 1);
+    });
+
+export const gapDays = (a, b) => {
+  if (!a || !b) return 0;
+  const t = d => Date.UTC(...d.split('-').map((x, i) => (i === 1 ? x - 1 : +x)));
+  return Math.max(0, Math.round((t(b) - t(a)) / 864e5));
+};
 
 const dayIndex = day => Math.floor(Date.UTC(...day.split('-').map((x, i) => (i === 1 ? x - 1 : +x))) / 864e5);
 

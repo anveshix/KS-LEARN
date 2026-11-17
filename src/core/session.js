@@ -2,7 +2,8 @@
 import { rng } from './rng.js';
 import { check } from './check.js';
 import { update, guessRate } from './mastery.js';
-import { frontier, classNow } from './planner.js';
+import { rankFrontier, classNow } from './planner.js';
+import { evidenceFor } from './scaffold.js';
 
 export function makeQuestion(sk, st, seed) {
   const s = st[sk.id];
@@ -21,15 +22,19 @@ export function makeQuestion(sk, st, seed) {
 export function createSession(app, plan, opts = {}) {
   const st = app.state.skills;
   let i = 0, cur = null, t0 = 0, firstTry = true;
-  const stats = { asked: 0, correct: 0, mastered: [], stuck: [], stars: 0 };
+  const stats = { asked: 0, correct: 0, assisted: 0, mastered: [], stuck: [], stars: 0 };
   let seed = (opts.seed || (Date.now() & 0x7fffffff)) >>> 0;
   const skip = new Set(); // skills the learner got stuck on in this session: move on, a parent is flagged
+  let focus = null;       // stay with one skill until it is mastered or set aside: depth before breadth
   const goal = opts.mission ? (opts.goal || app.state.profile.dailyQ || plan.length) : 0;
 
   function pickSkill(step) {
     if (step.kind === 'review' || step.kind === 'skill') return app.byId[step.skill];
-    const f = frontier(app.skills, st, step.strand, classNow(app.state.profile, app.now()));
-    return f.find(sk => !skip.has(sk.id)) || f[0] || null;
+    const f = rankFrontier(app.skills, st, step.strand, classNow(app.state.profile, app.now()));
+    if (focus && !skip.has(focus) && f.some(sk => sk.id === focus)) return app.byId[focus];
+    const pick = f.find(sk => !skip.has(sk.id)) || f[0] || null;
+    focus = pick ? pick.id : null;
+    return pick;
   }
   function next() {
     while (i < plan.length) {
@@ -55,9 +60,10 @@ export function createSession(app, plan, opts = {}) {
     if (!res.valid) return res;
     const ms = Math.min(180000, app.now().getTime() - t0);
     const day = app.day();
+    const p0 = st[sk.id].p;
     const ev = update(st[sk.id], res.ok, guessRate(q), day, res.trap, ms);
     stats.asked++; if (res.ok) { stats.correct++; stats.stars++; app.state.stars = (app.state.stars || 0) + 1; }
-    if (ev.includes('mastered')) { stats.mastered.push(sk.id); stats.stars += 5; app.state.stars += 5; }
+    if (ev.includes('mastered')) { stats.mastered.push(sk.id); stats.stars += 5; app.state.stars += 5; focus = null; }
     if (ev.includes('stuck')) {
       stats.stuck.push(sk.id); skip.add(sk.id);
       for (const p of sk.pre) if (st[p] && st[p].m) st[p].due = day; // revisit what this skill is built on
@@ -66,11 +72,29 @@ export function createSession(app, plan, opts = {}) {
     d.q++; d.c += res.ok ? 1 : 0; d.ms += ms;
     // Mission progress is counted per answer, so closing the app after the last question still counts.
     if (opts.mission) { d.mq = (d.mq || 0) + 1; if (d.mq >= goal) d.done = true; }
-    app.state.log.push({ d: day, s: sk.id, ok: res.ok ? 1 : 0, ms, m: res.trap || undefined });
+    app.state.log.push({ d: day, s: sk.id, ok: res.ok ? 1 : 0, ms, m: res.trap || undefined, w: 1, lv: 0, p0: Math.round(p0 * 1000) / 1000 });
     if (app.state.log.length > 6000) app.state.log.splice(0, app.state.log.length - 6000);
     i++;
     return { ...res, events: ev, q, skill: sk, remedy: res.trap ? app.misc[res.trap] : null };
   }
+  // A scaffold answer: it counts as practice, moves the estimate with a weight below 1,
+  // but is not graded evidence and never earns a star. `level` is the ladder rung (1..4).
+  function assisted({ skill: id, ok, guess, level = 1, ms = 0, weight = null }) {
+    const s = st[id];
+    if (!s) return null;
+    const lv = Math.max(1, Math.min(4, Math.round(level)));
+    const w = weight == null ? evidenceFor('worked') : weight;
+    const day = app.day();
+    const p0 = s.p;
+    const ev = update(s, !!ok, guess, day, null, ms, { weight: w, silent: true, level: lv });
+    stats.assisted++;
+    const d = app.state.days[day] || (app.state.days[day] = { q: 0, c: 0, ms: 0, mq: 0, done: false });
+    d.h = (d.h || 0) + 1;
+    app.state.log.push({ d: day, s: id, ok: ok ? 1 : 0, ms, a: 1, w, lv, p0: Math.round(p0 * 1000) / 1000 });
+    if (app.state.log.length > 6000) app.state.log.splice(0, app.state.log.length - 6000);
+    return { events: ev, weight: w, level: lv };
+  }
+
   // "I did not understand": flag this question for the parent. Not graded.
   function askParent() {
     if (!cur || cur.type !== 'q') return false;
@@ -80,7 +104,7 @@ export function createSession(app, plan, opts = {}) {
     return true;
   }
   const finish = () => { if (opts.mission && stats.asked > 0 && i >= plan.length) (app.state.days[app.day()] ||= { q: 0, c: 0, ms: 0, mq: 0 }).done = true; return stats; };
-  return { next, answer, askParent, finish, get current() { return cur; }, stats };
+  return { next, answer, assisted, askParent, finish, get current() { return cur; }, stats };
 }
 
 export function streak(days, today, addDaysFn) {
