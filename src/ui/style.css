@@ -9,19 +9,23 @@
   --r: 20px; --glass: rgb(255 255 255 / .72); --glass-line: rgb(255 255 255 / .85); --shadow: 0 8px 28px rgb(28 45 90 / .10), 0 1px 2px rgb(28 45 90 / .06);
   --orb1: rgb(43 85 230 / .22); --orb2: rgb(123 69 214 / .18); --orb3: rgb(20 138 90 / .14);
   --grad: linear-gradient(135deg, #2b55e6, #6a43d8);
+  /* Brand accents: the seed and its sprout. Text uses the darker green to stay legible. */
+  --sprout: #31b981; --sprout-ink: #0a5c40; --seed: #efb463;
 }
 @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
   --bg: #0f131a; --surface: #171d28; --ink: #e8ecf3; --muted: #9aa4b8; --line: #2a3446;
   --accent: #7e9cff; --accent-ink: #0b1020; --good: #5fd395; --good-bg: #13301f; --bad: #ff8b74; --bad-bg: #3a1a14; --warn-bg: #3a2f10;
   --m: #7e9cff; --e: #b590ff; --h: #ffab4f; --s: #4fd39b; --l: #4fd0e0; --c: #ff7fb8; --g: #e7b84a; --t: #ff9a7a; color-scheme: dark;
   --glass: rgb(23 29 40 / .66); --glass-line: rgb(255 255 255 / .09); --shadow: 0 10px 30px rgb(0 0 0 / .35);
-  --orb1: rgb(126 156 255 / .20); --orb2: rgb(181 144 255 / .16); --orb3: rgb(79 211 155 / .12); --grad: linear-gradient(135deg, #7e9cff, #b590ff); } }
+  --orb1: rgb(126 156 255 / .20); --orb2: rgb(181 144 255 / .16); --orb3: rgb(79 211 155 / .12); --grad: linear-gradient(135deg, #7e9cff, #b590ff);
+  --sprout: #4fd39b; --sprout-ink: #7ce7b7; --seed: #efb463; } }
 :root[data-theme="dark"] {
   --bg: #0f131a; --surface: #171d28; --ink: #e8ecf3; --muted: #9aa4b8; --line: #2a3446;
   --accent: #7e9cff; --accent-ink: #0b1020; --good: #5fd395; --good-bg: #13301f; --bad: #ff8b74; --bad-bg: #3a1a14; --warn-bg: #3a2f10;
   --m: #7e9cff; --e: #b590ff; --h: #ffab4f; --s: #4fd39b; --l: #4fd0e0; --c: #ff7fb8; --g: #e7b84a; --t: #ff9a7a; color-scheme: dark;
   --glass: rgb(23 29 40 / .66); --glass-line: rgb(255 255 255 / .09); --shadow: 0 10px 30px rgb(0 0 0 / .35);
-  --orb1: rgb(126 156 255 / .20); --orb2: rgb(181 144 255 / .16); --orb3: rgb(79 211 155 / .12); --grad: linear-gradient(135deg, #7e9cff, #b590ff); }
+  --orb1: rgb(126 156 255 / .20); --orb2: rgb(181 144 255 / .16); --orb3: rgb(79 211 155 / .12); --grad: linear-gradient(135deg, #7e9cff, #b590ff);
+  --sprout: #4fd39b; --sprout-ink: #7ce7b7; --seed: #efb463; }
 * { box-sizing: border-box; }
 html, body { margin: 0; }
 body { position: relative; background: var(--bg); color: var(--ink); font: 17px/1.55 var(--body); padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px)); }
@@ -50,6 +54,15 @@ a { color: var(--accent); }
 .btn.danger { border-color: var(--bad); color: var(--bad); }
 :focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
 .top { position: relative; z-index: 1; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding-block: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); max-width: 760px; margin: 0 auto; }
+/* The mark, the wordmark and the tagline: one block, used on the welcome screen. */
+.welcome { display: flex; gap: 16px; align-items: center; padding: 6px 2px 20px; }
+.mark { display: block; flex: none; width: 46px; height: 46px; background: no-repeat center / contain; }
+.mark-lg { width: 76px; height: 76px; }
+.welcome-text { min-width: 0; }
+.wordmark { display: block; font-family: var(--display); font-weight: 800; font-size: 1.6rem; line-height: 1.05; letter-spacing: -.01em; }
+.wordmark i { font-style: normal; color: var(--sprout-ink); }
+.tagline { margin: 3px 0 0; font-weight: 600; color: var(--muted); }
+.welcome-note { margin: 8px 0 0; max-width: 44ch; white-space: pre-line; }
 .brand { display: flex; gap: 10px; align-items: center; min-width: 0; }
 .brand b { display: block; font-family: var(--display); font-size: 1.15rem; line-height: 1.1; }
 .brand small { color: var(--muted); }
