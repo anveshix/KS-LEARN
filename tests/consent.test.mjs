@@ -29,14 +29,14 @@ const schoolPayload = (over = {}) => ({
 const prof = () => ({ name: 'Meera', cls: 4, ay0: 2026, lang: 'bi', dailyQ: 18, pin: makePin('1234'), off: [], created: '2026-11-17' });
 
 test('the notice lists separate purposes with only the two teaching ones essential', () => {
-  assert.equal(POLICY.purposes.length, 4);
-  assert.deepEqual(ESSENTIAL_PURPOSES, ['teach', 'memory']);
+  assert.equal(POLICY.purposes.length, 5);
+  assert.deepEqual(ESSENTIAL_PURPOSES, ['teach', 'memory', 'account']);
   assert.deepEqual(OPTIONAL_PURPOSES, ['readaloud', 'voice']);
   for (const p of POLICY.purposes) {
     assert.ok(p.title.en && p.title.hi && p.what.en && p.what.hi, `bilingual text for ${p.id}`);
     assert.ok(PURPOSE_IDS.includes(p.id));
   }
-  assert.equal(POLICY.version, '1.0');
+  assert.equal(POLICY.version, '1.1');
   assert.deepEqual(RELATIONS, ['mother', 'father', 'guardian']);
   assert.equal(ageBand(6), '6-9'); assert.equal(ageBand(9), '6-9'); assert.equal(ageBand(10), '10-12'); assert.equal(ageBand(17), '16-17');
 });
@@ -82,7 +82,7 @@ test('a granted record verifies, keeps the token out of storage, and enforces pu
   const rec = result.record;
   assert.equal(verifyConsent(rec, NOW).ok, true);
   assert.equal(verifyConsent(rec, NOW).state, 'valid');
-  assert.equal(rec.purposes.teach, true); assert.equal(rec.purposes.memory, true);
+  assert.equal(rec.purposes.teach, true); assert.equal(rec.purposes.memory, true); assert.equal(rec.purposes.account, true);
   assert.equal(rec.purposes.readaloud, true); assert.equal(rec.purposes.voice, false);
   assert.equal(rec.child.ageBand, '6-9');
   assert.equal(rec.reconsentBy, dateOnly(new Date(NOW.getTime() + RECONSENT_DAYS * 864e5)));
@@ -219,7 +219,7 @@ test('hostile consent records are rebuilt field by field and never trusted', () 
   hostile.digest = 'f'.repeat(64);
   const cleaned = sanitizeConsent(hostile);
   assert.equal(cleaned.child.age, 17); assert.equal(cleaned.child.class, 12); assert.equal(cleaned.child.ageBand, '16-17');
-  assert.deepEqual(cleaned.purposes, { teach: true, memory: true, readaloud: false, voice: true }, 'only literal true counts');
+  assert.deepEqual(cleaned.purposes, { teach: true, memory: true, account: true, readaloud: false, voice: true }, 'only literal true counts');
   assert.equal(cleaned.verification.method, 'guardian-token');
   assert.equal(cleaned.verification.ref.length, 80);
   assert.equal(cleaned.audit.length, 1);

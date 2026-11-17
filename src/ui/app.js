@@ -17,6 +17,7 @@ import { MARK_URI } from './mark.js';
 import { check } from '../core/check.js';
 import { hintFor, scaffoldFor, MAX_DEPTH, MSG } from '../core/guidance.js';
 import { createConsentFlow } from './consent-ui.js';
+import { createAccountFlow } from './account-ui.js';
 import { verifyConsent, purposeOn, setChildDetails } from '../core/consent.js';
 
 // ---------- environment ----------
@@ -71,7 +72,54 @@ const flow = createConsentFlow({
   brand: () => h('span', { class: 'brand-lockup' }, markElement('mark'), wordmark()),
   now: () => now(),
   onComplete: consentDone,
+  guardianAction,
 });
+
+const accountFlow = createAccountFlow({
+  getState: () => state,
+  setAccount(record) { state.account = record; persist(); },
+  getSession: () => guardianActive(),
+  setSession(on) { if (on) startGuardianSession(); else endGuardianSession(); },
+  persist, mount, go, render,
+  toast: msg => toast(msg),
+  offerFile: (name, text) => offerFile(name, text),
+  brand: () => h('span', { class: 'brand-lockup' }, markElement('mark'), wordmark()),
+  now: () => now(),
+  onRegistered() {
+    appUnlocked = true; startGuardianSession();
+    if (!state.profile) return viewSetup();
+    toast(ui(T.consentOk, 'bi'));
+    go('home');
+  },
+  onLogin() {
+    appUnlocked = true; startGuardianSession();
+    const after = pendingAfterLogin, intent = loginIntent;
+    pendingAfterLogin = null; loginIntent = null;
+    if (after) return after();
+    if (intent === 'parent' || parentOpen) { parentOpen = true; parentSeen = Date.now(); return go('parent'); }
+    go('home');
+  },
+  signOut() { endGuardianSession(); appUnlocked = false; parentOpen = false; go('home'); },
+});
+
+// ---------- guardian session ----------
+// The 4-digit PIN is a child lock. A guardian account session is what authorises privacy
+// actions (withdrawal, erasure, credential changes). It lives in memory only, never on disk,
+// and expires after 15 minutes; `appUnlocked` separately remembers an app-lock unlock for
+// this browser session only.
+const GUARDIAN_TTL = 15 * 60 * 1000;
+let guardianSession = false, guardianAt = 0, appUnlocked = false;
+let loginIntent = null, pendingAfterLogin = null;
+const guardianActive = () => guardianSession && Date.now() - guardianAt < GUARDIAN_TTL;
+function startGuardianSession() { guardianSession = true; guardianAt = Date.now(); appUnlocked = true; }
+function endGuardianSession() { guardianSession = false; guardianAt = 0; }
+function guardianAction(fn) {
+  if (guardianActive()) { fn(); return true; }
+  pendingAfterLogin = fn; loginIntent = null;
+  toast(ui(T.loginNeeded, 'bi'), 4000);
+  go('login');
+  return false;
+}
 
 // ---------- parental consent (DPDP) ----------
 // The flow is injected with storage, routing and file export so the consent screens stay
@@ -79,7 +127,7 @@ const flow = createConsentFlow({
 function consentDone(record) {
   state.consent = record;
   persist();
-  if (!state.profile) return viewSetup();               // first run: continue to the child profile
+  if (!state.profile) return state.account ? viewSetup() : accountFlow.register(); // account, then profile
   // A renewal started from the Parent area returns there; a gate opened on the way in goes home.
   if (['consent', 'parent'].includes((location.hash || '').slice(1))) {
     parentSeen = Date.now();
@@ -177,9 +225,11 @@ function viewSetup() {
     const d = now(), name = f.querySelector('#f-name').value.trim().slice(0, 20), pin = f.querySelector('#f-pin').value;
     const err = f.querySelector('#f-err');
     if (!name || !/^\d{4}$/.test(pin)) { err.textContent = ui(name ? T.pinNeeded : T.nameNeeded, 'bi'); err.hidden = false; return; }
-    const consent = state.consent; // the guardian's record is never dropped by this form
+    // This form only creates the learner: the guardian's consent record and account survive it.
+    const { consent, account } = state;
     state = freshState();
     state.consent = consent;
+    state.account = account;
     state.profile = {
       name, cls: +f.querySelector('#f-cls').value, ay0: academicYear(d), lang: f.querySelector('#f-lang').value,
       dailyQ: +f.querySelector('#f-daily').value, pin: makePin(pin), off: [], autoRead: false, created: today(),
@@ -576,7 +626,9 @@ function viewParent() {
       persist(); f.querySelector('#pin').value = '';
       if (!showLock()) { err.textContent = u(T.wrongPin); err.hidden = false; }
     });
-    mount(header(), h('main', { class: 'wrap' }, f), nav('parent'));
+    mount(header(), h('main', { class: 'wrap' }, f,
+      state.account && h('div', { class: 'actions wrap-row' },
+        h('button', { class: 'btn ghost', onclick: () => { loginIntent = 'parent'; go('login'); } }, u(T.guardianLogin)))), nav('parent'));
     f.querySelector('#pin').focus();
     return;
   }
@@ -610,7 +662,7 @@ function viewParent() {
   const askCard = h('section', { class: 'card' }, h('div', { class: 'eyebrow' }, u(T.asks)),
     asks.length ? h('ul', { class: 'asks' }, asks.map(a => h('li', {}, h('span', {}, `${a.d} · ${byId[a.s] ? t(byId[a.s].title) : a.s}: ${a.q}`),
       h('button', { class: 'btn small', onclick: () => { a.done = true; persist(); viewParent(); } }, u(T.resolved))))) : h('p', { class: 'muted' }, u(T.noAsks)));
-  mount(header(), h('main', { class: 'wrap' }, h('h1', { class: 'page-h' }, u(T.parent)), week, flow.card(), helpCard, askCard, mist, road, settingsCard(), pinCard(), packsCard(), backupCard(),
+  mount(header(), h('main', { class: 'wrap' }, h('h1', { class: 'page-h' }, u(T.parent)), accountFlow.card(), flow.card(), week, helpCard, askCard, mist, road, settingsCard(), pinCard(), packsCard(), backupCard(),
     h('button', { class: 'btn ghost', onclick: () => { parentOpen = false; go('home'); } }, u(T.lockParent))), nav('parent'));
 }
 function settingsCard() {
@@ -694,7 +746,13 @@ function backupCard() {
     note, goBtn,
     undo && undo.profile && h('button', { class: 'btn ghost', onclick: () => { const prev = readUndo(storage); if (!prev) return; keepUndo(storage); state = prev; rebuildSkills(); persist(); toast(u(T.undone)); parentOpen = false; go('home'); } }, u(T.undo)),
     h('details', {}, h('summary', {}, u(T.reset)), h('label', { for: 'b-reset' }, u(T.resetConfirm)), confirm,
-      h('button', { class: 'btn danger', onclick: () => { if (confirm.value.trim() === 'ERASE') { keepUndo(storage); storage.removeItem(STORE_KEY); state = freshState(); rebuildSkills(); parentOpen = false; render(); } } }, u(T.reset))));
+      h('button', { class: 'btn danger', onclick: () => {
+        if (confirm.value.trim() !== 'ERASE') return;
+        guardianAction(() => {
+          keepUndo(storage); storage.removeItem(STORE_KEY);
+          state = freshState(); rebuildSkills(); endGuardianSession(); appUnlocked = false; parentOpen = false; render();
+        });
+      } }, u(T.reset))));
 }
 function packsCard() {
   const file = h('input', { type: 'file', id: 'p-file', accept: '.json,application/json' });
@@ -732,27 +790,38 @@ function go(route) { if (location.hash !== '#' + route) location.hash = route; e
 function render() {
   voice.stop();
   if (!state.profile) {
-    // First run: the guardian sees the notice and records consent before the child profile.
-    // A reload between the two steps resumes at the profile instead of repeating the notice.
-    return verifyConsent(state.consent, now()).ok ? viewSetup() : flow.start();
+    // First run, in order: notice and consent, guardian account, child profile. A reload
+    // between steps resumes at the first unfinished step instead of repeating a finished one.
+    if (!verifyConsent(state.consent, now()).ok) return flow.start();
+    if (!state.account) return accountFlow.register();
+    return viewSetup();
   }
   if (run) return; // never navigate away from a running session by hash
   const r = (location.hash || '#home').slice(1);
   document.documentElement.lang = M() === 'hi' ? 'hi' : 'en';
   document.querySelectorAll('.sheet').forEach(x => x.remove());
-  if ((r !== 'parent' && r !== 'consent') || Date.now() - parentSeen > PARENT_IDLE_MS) parentOpen = false; // leaving the parent area locks it
   // No consent, a withdrawn record, a damaged digest or a year-old record: the learning
   // screens are closed until a guardian deals with it. No exceptions on any route.
   const consent = verifyConsent(state.consent, now());
   if (!consent.ok) return flow.renew(consent);
+  // An account is part of the gate: without it there is no authority to change privacy settings.
+  if (!state.account) return accountFlow.register();
+  if (state.account.requireUnlock && !appUnlocked) { parentOpen = false; return accountFlow.login(); }
+  if ((r !== 'parent' && r !== 'consent' && r !== 'login') || Date.now() - parentSeen > PARENT_IDLE_MS) {
+    parentOpen = false; endGuardianSession(); // the parent area and its guardian session end together
+  }
+  // Leaving the sign-in screen abandons whatever it was opened for: no stale erasure callback
+  // and no stale "return to parent" intent can survive to a later login.
+  if (r !== 'login') { pendingAfterLogin = null; loginIntent = null; }
   if (r === 'consent') return flow.renew(consent);
+  if (r === 'login') return accountFlow.login();
   if (r === 'map') return viewMap();
   if (r === 'parent') return viewParent();
   return viewHome();
 }
 window.addEventListener('hashchange', () => { if (run) { run.s.finish(); persist(); run = null; } render(); });
 // The parent area also locks when left idle. (Not on backgrounding: the file picker hides the page on phones.)
-setInterval(() => { if (parentOpen && Date.now() - parentSeen > PARENT_IDLE_MS) { parentOpen = false; if (!run && state.profile) render(); } }, 30000);
+setInterval(() => { if (parentOpen && Date.now() - parentSeen > PARENT_IDLE_MS) { parentOpen = false; endGuardianSession(); if (!run && state.profile) render(); } }, 30000);
 document.addEventListener('pointerdown', () => { if (parentOpen) parentSeen = Date.now(); }, true);
 document.addEventListener('keydown', () => { if (parentOpen) parentSeen = Date.now(); }, true);
 // Another tab changed the saved progress: take the newer copy instead of overwriting it later.

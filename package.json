@@ -1,6 +1,6 @@
 {
   "name": "ks-learn",
-  "version": "2.2.0",
+  "version": "2.3.0",
   "private": true,
   "type": "module",
   "description": "KS-LEARN: an offline-first personal mastery-learning app (Hindi/English), class 3 to 9",

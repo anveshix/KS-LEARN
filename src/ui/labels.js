@@ -138,6 +138,9 @@ export const T = {
   program: L('SUPER GRADE', 'सुपर ग्रेड'),
   consentDone: L('Guardian consent recorded', 'अभिभावक की सहमति दर्ज'),
   consentOk: L('Consent recorded. Learning is open.', 'सहमति दर्ज। सीखना खुला है।'),
+  guardianLogin: L('Sign in with the guardian account', 'अभिभावक खाते से साइन इन करें'),
+  loginNeeded: L('Sign in with the guardian passphrase to continue.', 'जारी रखने के लिए अभिभावक पासफ़्रेज़ से साइन इन कीजिए।'),
+  account: L('Guardian account', 'अभिभावक खाता'),
   enough: L('That is plenty for today. Rest your eyes and try the off-screen challenge.', 'आज के लिए इतना काफ़ी है। आँखों को आराम दीजिए और बिना-स्क्रीन चुनौती कीजिए।'),
 };
 

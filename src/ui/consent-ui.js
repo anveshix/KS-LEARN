@@ -19,9 +19,9 @@ const C = {
   onbLead: L('KS-LEARN is for one child, on this device. Before any learning starts, the parent or guardian reads the notice and gives consent.', 'केएस-लर्न एक बच्चे के लिए, इसी डिवाइस पर है। सीखना शुरू होने से पहले माता-पिता या अभिभावक सूचना पढ़कर सहमति देते हैं।'),
   noticeTitle: L('What happens to your child’s data', 'बच्चे के डेटा का क्या होता है'),
   keeps: L('Kept on this device only', 'केवल इसी डिवाइस पर रखा जाता है'),
-  keepsBody: L('Nickname, class, subject choices, answers, mastery scores and the daily streak. They sit in this browser’s storage — there is no account, no cloud and nothing to log in to.', 'उपनाम, कक्षा, विषय, उत्तर, महारत के अंक और लगातार दिन। ये इसी ब्राउज़र के स्टोरेज में रहते हैं — कोई खाता नहीं, कोई क्लाउड नहीं, कहीं लॉगिन नहीं।'),
+  keepsBody: L('Nickname, class, subject choices, answers, mastery scores and the daily streak sit in this browser’s storage. A guardian account with a passphrase lives here too, so only you can change privacy settings or erase data. There is no email, no phone number and no cloud.', 'उपनाम, कक्षा, विषय, उत्तर, महारत के अंक और लगातार दिन इसी ब्राउज़र के स्टोरेज में रहते हैं। गोपनीयता सेटिंग बदलने या डेटा मिटाने के लिए इसी डिवाइस पर अभिभावक खाता और पासफ़्रेज़ रहता है। कोई ईमेल, फ़ोन नंबर या क्लाउड नहीं।'),
   never: L('Never collected', 'कभी नहीं लिया जाता'),
-  neverBody: L('No voice or audio recordings. No camera. No location. No contacts. No advertising ID. No behavioural or third-party tracking. No analytics requests: the app works with the network switched off.', 'आवाज़ या ऑडियो रिकॉर्डिंग नहीं। कैमरा नहीं। लोकेशन नहीं। संपर्क नहीं। विज्ञापन आईडी नहीं। व्यवहार या तीसरे पक्ष की ट्रैकिंग नहीं। कोई एनालिटिक्स नहीं: ऐप बिना इंटरनेट भी चलता है।'),
+  neverBody: L('No email, phone number or password is ever sent or stored on a server. No voice or audio recordings. No camera, location, contacts or advertising ID. No behavioural or third-party tracking, and no analytics requests: the app works with the network switched off.', 'कोई ईमेल, फ़ोन नंबर या पासवर्ड कभी भेजा या सर्वर पर सहेजा नहीं जाता। आवाज़ या ऑडियो रिकॉर्डिंग नहीं। कैमरा, लोकेशन, संपर्क या विज्ञापन आईडी नहीं। व्यवहार या तीसरे पक्ष की ट्रैकिंग नहीं, कोई एनालिटिक्स नहीं: ऐप बिना इंटरनेट भी चलता है।'),
   choices: L('Each purpose is a separate choice', 'हर उद्देश्य के लिए अलग चुनाव'),
   essential: L('Needed to teach', 'पढ़ाने के लिए ज़रूरी'),
   optional: L('Your choice', 'आपकी इच्छा'),
@@ -380,8 +380,13 @@ export function createConsentFlow(env) {
     const btn = h('button', { class: 'btn danger', onclick: () => {
       if (!armed) { armed = true; note.hidden = false; btn.textContent = s(C.withdrawConfirm); return; }
       const rec = old();
-      if (rec) env.setConsent(withdrawConsent(rec, new Date(), 'guardian withdrew in recovery screen'));
-      env.go('home');
+      // Withdrawal is a privacy action: it needs the guardian account passphrase, not just the
+      // child lock. When the app is already blocked, the PIN recovery path is used instead.
+      const run = () => {
+        if (rec) env.setConsent(withdrawConsent(rec, new Date(), 'guardian withdrew in parent area'));
+        env.go('home');
+      };
+      if (env.guardianAction) env.guardianAction(run); else run();
     } }, s(C.withdraw));
     return h('details', { class: 'danger-zone' }, h('summary', {}, s(C.eraseTitle)),
       h('p', { class: 'muted small' }, s(C.eraseNote)), note, btn);

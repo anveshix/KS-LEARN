@@ -334,3 +334,25 @@ body { -webkit-tap-highlight-color: transparent; }
 .hello-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 4px; }
 .hello-row .hello { margin: 0; }
 .page-h { font-size: 1.5rem; margin: 2px 0 0; }
+
+/* ---------- Guardian account: registration, sign in, recovery ---------- */
+.field { display: grid; gap: 4px; margin-top: 10px; }
+.field > label { font-weight: 600; }
+.pw-row { display: flex; gap: 8px; align-items: stretch; }
+.pw-row input { flex: 1 1 auto; }
+.pw-show { min-height: 52px; }
+.pw-meter { display: grid; gap: 4px; margin: 6px 0 2px; }
+.pw-bars { display: flex; gap: 4px; }
+.pw-bars i { height: 6px; flex: 1 1 0; border-radius: 99px; background: var(--line); transition: background .2s; }
+.pw-bars.score-1 i.on { background: var(--bad); }
+.pw-bars.score-2 i.on { background: #d9a13a; }
+.pw-bars.score-3 i.on { background: var(--good); }
+.pw-bars.score-4 i.on { background: var(--good); }
+.pw-label { margin: 0; }
+.account-card h2 { margin: 0; font-size: 1.15rem; }
+.account-card .kv { font-size: .86rem; }
+.account-note { margin: 14px 2px 0; max-width: 46ch; }
+.account-sheet .token { margin: 12px 0; }
+.shake { animation: shake .4s var(--ease); }
+@keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
+@media (prefers-reduced-motion: reduce) { .shake { animation: none; } }

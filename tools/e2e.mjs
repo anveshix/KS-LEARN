@@ -24,6 +24,15 @@ async function open(ctx, url) {
 const text = p => p.innerText('body');
 const step = async (name, fn) => { await fn(); console.log('ok  ', name); };
 // First run: notice -> guardian and purposes -> one-time token typed back -> receipt.
+const registerGuardian = async (page, pass = 'Tulsi-leaf-2026') => {
+  await page.waitForSelector('#reg-name');
+  await page.fill('#reg-pass', pass); await page.fill('#reg-pass2', pass);
+  await page.click('#reg-submit');
+  await page.waitForSelector('#rec-code');
+  await page.check('#rec-ack'); await page.click('#rec-done');
+  await page.waitForSelector('#setup');
+};
+const onboard = async page => { await giveConsent(page); await registerGuardian(page); };
 const giveConsent = async page => {
   await page.waitForSelector('#cg-ack');
   await page.check('#cg-ack'); await page.click('#onb-next');
@@ -43,7 +52,7 @@ await step('consent gate: notice must be acknowledged, purposes are separate, th
   assert.ok(await p.isVisible('#cg-err'), 'the notice cannot be skipped');
   assert.equal(await p.evaluate(() => JSON.parse(localStorage.getItem('kslearn.v2') || '{}').consent), null, 'no record before consent');
   await giveConsent(p);
-  await p.waitForSelector('#setup');
+  await p.waitForSelector('#reg-name');
   consentRecord = await p.evaluate(() => JSON.parse(localStorage.getItem('kslearn.v2')).consent);
   assert.equal(consentRecord.guardian.name, 'Asha Devi');
   assert.equal(consentRecord.purposes.teach, true);
@@ -52,6 +61,18 @@ await step('consent gate: notice must be acknowledged, purposes are separate, th
   assert.match(consentRecord.digest, /^[0-9a-f]{64}$/);
   assert.match(consentRecord.verification.method, /guardian-token/);
   assert.match(consentRecord.verification.ref, /^[0-9a-f]{64}$/, 'only the token hash is stored');
+});
+await step('guardian account: only stretched hashes are stored, never the passphrase', async () => {
+  await registerGuardian(p);
+  const acc = await p.evaluate(() => JSON.parse(localStorage.getItem('kslearn.v2')).account);
+  assert.equal(acc.name, 'Asha Devi');
+  assert.equal(acc.kdf.fast.i, 210000);
+  assert.equal(acc.kdf.slow.i, 30000);
+  assert.match(acc.kdf.fast.h, /^[0-9a-f]{64}$/);
+  assert.match(acc.recovery.kdf.s, /^[0-9a-f]{32}$/);
+  assert.equal(acc.requireUnlock, false);
+  const raw = await p.evaluate(() => localStorage.getItem('kslearn.v2'));
+  assert.ok(!raw.includes('Tulsi-leaf-2026'), 'passphrase never reaches storage');
 });
 await step('setup refuses a blank name and a short PIN', async () => {
   await p.fill('#f-name', '   '); await p.fill('#f-pin', '1234'); await p.evaluate(() => document.querySelector('#setup').requestSubmit());
@@ -153,12 +174,12 @@ await step('restore needs two taps, rejects junk, and can be undone', async () =
 });
 await step('damaged storage is set aside, not overwritten', async () => {
   await p.evaluate(() => localStorage.setItem('kslearn.v2', '{"v":2,"skills":'));
-  await p.reload(); await giveConsent(p); await p.waitForSelector('#setup');
+  await p.reload(); await onboard(p);
   assert.equal(await p.evaluate(() => localStorage.getItem('kslearn.v2.damaged')), '{"v":2,"skills":');
 });
 await step('dark theme and 320px width render without horizontal scroll', async () => {
   const c2 = await b.newContext({ viewport: { width: 320, height: 640 }, colorScheme: 'dark' }), q = await open(c2, FILE);
-  await giveConsent(q);
+  await onboard(q);
   await q.fill('#f-name', 'A'); await q.fill('#f-pin', '1111'); await q.click('#setup button[type=submit]'); await q.waitForSelector('.mission');
   for (const h of ['#home', '#map']) { await q.goto(FILE + h); await q.waitForTimeout(150); assert.ok(await q.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), 'overflow at ' + h); }
   await c2.close();
@@ -179,7 +200,7 @@ const c3 = await b.newContext();
 await step('PWA installs a service worker and opens offline', async () => {
   // localhost is http, so register by hand exactly as the app does on https
   const q = await open(c3, base);
-  await giveConsent(q);
+  await onboard(q);
   await q.fill('#f-name', 'A'); await q.fill('#f-pin', '1111'); await q.click('#setup button[type=submit]'); await q.waitForSelector('.mission');
   await q.evaluate(() => navigator.serviceWorker.register('sw.js').then(() => navigator.serviceWorker.ready));
   await q.waitForFunction(() => navigator.serviceWorker.controller || navigator.serviceWorker.ready.then(r => !!r.active));
@@ -203,6 +224,17 @@ await step('a tampered consent record closes the learning screens until a guardi
   assert.equal(fresh.verification.method, 'guardian-token');
   assert.equal(fresh.purposes.voice, false);
   assert.match(fresh.digest, /^[0-9a-f]{64}$/);
+});
+await step('the guardian passphrase signs in and out of the privacy actions', async () => {
+  await p.click('a[href="#parent"]'); await p.waitForSelector('#pin');
+  await p.fill('#pin', '1234'); await p.click('form .btn.primary'); await p.waitForSelector('#acc-auth');
+  assert.match(await p.innerText('#acc-chip'), /not signed in/i);
+  await p.click('#acc-auth'); await p.waitForSelector('#login-pass');
+  await p.fill('#login-pass', 'Tulsi-leaf-2026'); await p.click('#login-submit');
+  await p.waitForSelector('#acc-chip:has-text("Signed in")', { timeout: 15000 });
+  const acc = await p.evaluate(() => JSON.parse(localStorage.getItem('kslearn.v2')).account);
+  assert.ok(acc.loginCount >= 1 && acc.audit.some(a => a.action === 'login'));
+  await p.click('#acc-auth'); await p.waitForSelector('.mission');
 });
 await c3.close(); await b.close();
 const real = problems.filter(x => !/ERR_INTERNET_DISCONNECTED|ERR_CONNECTION_REFUSED/.test(x));

@@ -16,7 +16,7 @@ import { sha256, hex } from './pin.js';
 
 export const POLICY = {
   id: 'ks-learn-dpdp',
-  version: '1.0',
+  version: '1.1',
   effective: '2026-11-17',
   // Fiduciary duties that hold for every purpose, stated once.
   retention: 'Kept in this browser on this device until the guardian erases it. Consent is renewed every 12 months.',
@@ -31,6 +31,11 @@ export const POLICY = {
       id: 'memory', essential: true,
       title: { en: 'Remember what is mastered', hi: 'क्या सीखा, यह याद रखना' },
       what: { en: 'Answers and mastery scores schedule spaced revision on this device.', hi: 'उत्तर और महारत के अंक इसी डिवाइस पर दोहराव तय करते हैं।' },
+    },
+    {
+      id: 'account', essential: true,
+      title: { en: 'Keep a guardian account on this device', hi: 'इसी डिवाइस पर अभिभावक खाता रखना' },
+      what: { en: 'A passphrase protects privacy settings and erasure. No email, no phone number, no cloud.', hi: 'पासफ़्रेज़ गोपनीयता सेटिंग और डेटा मिटाने को सुरक्षित रखता है। कोई ईमेल, फ़ोन या क्लाउड नहीं।' },
     },
     {
       id: 'readaloud', essential: false,
