@@ -22,7 +22,7 @@ is built from that single thought — the seed, its shadow, and the sprout that 
 | **Promise** | Small beginnings. Lasting growth. |
 | **Personality** | Warm, patient, exact. A good teacher, not a hype machine. |
 | **Audience** | Parents in India with a child in class 3–9 and one shared phone. Secondarily: teachers who print packs. |
-| **Proof** | Works in aeroplane mode · 8 subjects, 100+ skills · progress stored on the device · no accounts, no ads, no tracking |
+| **Proof** | Works in aeroplane mode · 8 subjects, 100+ skills · progress stored on the device · no online account, no ads, no tracking |
 | **Never** | Stars-and-stripes hype, exam fear, "topper" framing, streak shaming, data collection. |
 
 ---
@@ -159,7 +159,7 @@ Short sentences. Concrete numbers. A parent talking to a parent.
 | "A seed is not a small tree. But it is the whole tree." | "Unlock your child's true potential." |
 
 Three pillars, in this order: **habit** (small, daily, finishable) · **mastery** (a skill is learned
-when it can be recalled a week later) · **privacy** (no account, no ads, nothing leaves the device).
+when it can be recalled a week later) · **privacy** (no online account, no ads, nothing leaves the device).
 
 ---
 

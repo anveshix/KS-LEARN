@@ -46,7 +46,7 @@ const pwaCsp = csp(jsPwa, ["img-src 'self' data:", "manifest-src 'self'", "worke
 const META = '<meta name="description" content="KS-LEARN — small beginnings, lasting growth. Personal mastery learning for class 3–9, Hindi and English, offline, on one device.">' +
   '<meta property="og:type" content="website"><meta property="og:site_name" content="KS-LEARN">' +
   '<meta property="og:title" content="KS-LEARN — Small beginnings. Lasting growth.">' +
-  '<meta property="og:description" content="Personal mastery learning for class 3–9. Hindi and English. Works offline. No accounts, no ads, nothing leaves the device.">' +
+  '<meta property="og:description" content="Personal mastery learning for class 3–9. Hindi and English. Works offline. A guardian account that never leaves the device. No ads, no tracking.">' +
   '<meta property="og:image" content="og-image.png"><meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">' +
   '<meta name="twitter:card" content="summary_large_image"><meta name="twitter:title" content="KS-LEARN — Small beginnings. Lasting growth.">' +
   '<meta name="twitter:image" content="og-image.png">';
@@ -57,7 +57,7 @@ for (const f of ['icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple
 copyFileSync('assets/brand/social-card.png', 'dist/pwa/og-image.png'); // sharing card only, never fetched by the app
 writeFileSync('dist/pwa/manifest.webmanifest', JSON.stringify({
   id: './', name: 'KS-LEARN — Small beginnings. Lasting growth.', short_name: 'KS-LEARN',
-  description: 'Personal mastery learning for class 3–9, Hindi and English. Works offline. No accounts, no ads.',
+  description: 'Personal mastery learning for class 3–9, Hindi and English. Works offline. Device-local guardian account, no ads, no tracking.',
   start_url: './', scope: './', display: 'standalone', orientation: 'any', background_color: '#f2f5f9', theme_color: '#16295C', lang: 'en-IN',
   icons: [
     { src: 'icon-192.png', sizes: '192x192', type: 'image/png', purpose: 'any' },

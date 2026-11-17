@@ -16,6 +16,9 @@ import { orderWidget, matchWidget } from './widgets.js';
 import { MARK_URI } from './mark.js';
 import { check } from '../core/check.js';
 import { hintFor, scaffoldFor, MAX_DEPTH, MSG } from '../core/guidance.js';
+import { createConsentFlow } from './consent-ui.js';
+import { createAccountFlow } from './account-ui.js';
+import { verifyConsent, purposeOn, setChildDetails } from '../core/consent.js';
 
 // ---------- environment ----------
 const mem = {};
@@ -59,6 +62,81 @@ function toast(msg, ms = 2600) {
   document.body.append(el); setTimeout(() => el.remove(), ms);
 }
 
+const flow = createConsentFlow({
+  getState: () => state,
+  setConsent(record) { state.consent = record; persist(); },
+  setLock(lock) { state.lock = lock; persist(); },
+  persist, mount, go, render,
+  toast: msg => toast(msg),
+  offerFile: (name, text) => offerFile(name, text),
+  brand: () => h('span', { class: 'brand-lockup' }, markElement('mark'), wordmark()),
+  now: () => now(),
+  onComplete: consentDone,
+  guardianAction,
+});
+
+const accountFlow = createAccountFlow({
+  getState: () => state,
+  setAccount(record) { state.account = record; persist(); },
+  getSession: () => guardianActive(),
+  setSession(on) { if (on) startGuardianSession(); else endGuardianSession(); },
+  persist, mount, go, render,
+  toast: msg => toast(msg),
+  offerFile: (name, text) => offerFile(name, text),
+  brand: () => h('span', { class: 'brand-lockup' }, markElement('mark'), wordmark()),
+  now: () => now(),
+  onRegistered() {
+    appUnlocked = true; startGuardianSession();
+    if (!state.profile) return viewSetup();
+    toast(ui(T.consentOk, 'bi'));
+    go('home');
+  },
+  onLogin() {
+    appUnlocked = true; startGuardianSession();
+    const after = pendingAfterLogin, intent = loginIntent;
+    pendingAfterLogin = null; loginIntent = null;
+    if (after) return after();
+    if (intent === 'parent' || parentOpen) { parentOpen = true; parentSeen = Date.now(); return go('parent'); }
+    go('home');
+  },
+  signOut() { endGuardianSession(); appUnlocked = false; parentOpen = false; go('home'); },
+});
+
+// ---------- guardian session ----------
+// The 4-digit PIN is a child lock. A guardian account session is what authorises privacy
+// actions (withdrawal, erasure, credential changes). It lives in memory only, never on disk,
+// and expires after 15 minutes; `appUnlocked` separately remembers an app-lock unlock for
+// this browser session only.
+const GUARDIAN_TTL = 15 * 60 * 1000;
+let guardianSession = false, guardianAt = 0, appUnlocked = false;
+let loginIntent = null, pendingAfterLogin = null;
+const guardianActive = () => guardianSession && Date.now() - guardianAt < GUARDIAN_TTL;
+function startGuardianSession() { guardianSession = true; guardianAt = Date.now(); appUnlocked = true; }
+function endGuardianSession() { guardianSession = false; guardianAt = 0; }
+function guardianAction(fn) {
+  if (guardianActive()) { fn(); return true; }
+  pendingAfterLogin = fn; loginIntent = null;
+  toast(ui(T.loginNeeded, 'bi'), 4000);
+  go('login');
+  return false;
+}
+
+// ---------- parental consent (DPDP) ----------
+// The flow is injected with storage, routing and file export so the consent screens stay
+// free of hidden side effects. Every entry point re-checks the record with verifyConsent().
+function consentDone(record) {
+  state.consent = record;
+  persist();
+  if (!state.profile) return state.account ? viewSetup() : accountFlow.register(); // account, then profile
+  // A renewal started from the Parent area returns there; a gate opened on the way in goes home.
+  if (['consent', 'parent'].includes((location.hash || '').slice(1))) {
+    parentSeen = Date.now();
+    return go('parent');
+  }
+  toast(ui(T.consentOk, 'bi'));
+  go('home');
+}
+
 // ---------- speech ----------
 const voice = (() => {
   const synth = window.speechSynthesis;
@@ -76,8 +154,10 @@ const voice = (() => {
     return out.map(s => ({ ...s, text: s.text.replace(/[()]/g, ' ').trim() })).filter(s => /[\p{L}\p{N}]/u.test(s.text));
   };
   return {
-    available: () => !!(synth || ttsCap),
+    // Read-aloud is an optional purpose on the consent record. Without it, no voice button appears.
+    available: () => !!(synth || ttsCap) && purposeOn(state.consent, 'readaloud'),
     speak(text) {
+      if (!purposeOn(state.consent, 'readaloud')) return;
       try {
         if (synth) {
           synth.cancel();
@@ -109,7 +189,8 @@ function nav(active) {
 function header() {
   const p = state.profile, cls = classNow(p, now());
   return h('header', { class: 'top' },
-    h('div', { class: 'brand' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, Array.from(p.name)[0].toUpperCase()), h('div', {}, h('b', {}, p.name), h('small', {}, `${u(T.classN)} ${cls}`))),
+    h('div', { class: 'brand' }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, Array.from(p.name)[0].toUpperCase()),
+      h('div', {}, h('b', {}, p.name), h('small', {}, `${u(T.classN)} ${cls}`))),
     h('div', { class: 'pills' },
       h('span', { class: 'pill-stat', title: `${u(T.level)} ${levelInfo(state.stars || 0).index + 1}` }, h('span', { class: 'ico', 'aria-hidden': 'true' }, levelInfo(state.stars || 0).level.icon)),
       h('span', { class: 'pill-stat', title: u(T.streak) }, h('span', { class: 'ico', 'aria-hidden': 'true' }, '🔥'), String(streak(state.days, today(), addDays))),
@@ -144,11 +225,17 @@ function viewSetup() {
     const d = now(), name = f.querySelector('#f-name').value.trim().slice(0, 20), pin = f.querySelector('#f-pin').value;
     const err = f.querySelector('#f-err');
     if (!name || !/^\d{4}$/.test(pin)) { err.textContent = ui(name ? T.pinNeeded : T.nameNeeded, 'bi'); err.hidden = false; return; }
+    // This form only creates the learner: the guardian's consent record and account survive it.
+    const { consent, account } = state;
     state = freshState();
+    state.consent = consent;
+    state.account = account;
     state.profile = {
       name, cls: +f.querySelector('#f-cls').value, ay0: academicYear(d), lang: f.querySelector('#f-lang').value,
       dailyQ: +f.querySelector('#f-daily').value, pin: makePin(pin), off: [], autoRead: false, created: today(),
     };
+    // The consent record names the class it was given for; keep it true when the profile is made.
+    state.consent = setChildDetails(state.consent, { cls: state.profile.cls }, d);
     rebuildSkills(); ensureState(skills, state.skills, state.profile, d); persist(); go('home');
   });
   const welcome = h('header', { class: 'welcome' },
@@ -157,7 +244,11 @@ function viewSetup() {
       wordmark(),
       h('p', { class: 'tagline' }, u(T.tagline)),
       h('p', { class: 'muted small welcome-note' }, ui(T.setupNote, 'bi'))));
-  mount(h('main', { class: 'wrap' }, welcome, f, restoreCard()));
+  const consent = state.consent;
+  mount(h('main', { class: 'wrap' }, welcome,
+    consent && h('p', { class: 'consent-chip' }, h('span', { class: 'chip chip-ok' }, ui(T.consentDone, 'bi')),
+      h('span', { class: 'muted small' }, `${consent.guardian.name} · ${consent.reconsentBy}`)),
+    f, restoreCard()));
 }
 
 // ---------- rewards UI ----------
@@ -234,7 +325,9 @@ function viewHome() {
   const tStreak = h('section', { class: 'card tile b-half' }, h('div', { class: 'eyebrow' }, u(T.streak)), h('span', { class: 'big-ico', 'aria-hidden': 'true' }, h('span', { class: 'flame' }, '🔥')), h('div', { class: 'big-n' }, String(sDays)));
   const tStars = h('section', { class: 'card tile b-half' }, h('div', { class: 'eyebrow' }, u(T.stars)), h('span', { class: 'big-ico', 'aria-hidden': 'true' }, '⭐'), h('div', { class: 'big-n' }, String(state.stars || 0)));
   mount(header(), h('main', { class: 'wrap' }, !storage.ok && h('p', { class: 'warn' }, u(T.storageWarn)), boot.recovered && h('p', { class: 'warn' }, u(T.recovered)),
-    h('h1', { class: 'hello' }, `${u(T.hello)}, ${p.name}`),
+    h('div', { class: 'hello-row' },
+      h('h1', { class: 'hello' }, `${u(T.hello)}, ${p.name}`),
+      h('span', { class: 'program-chip' }, ui(T.program, 'bi'))),
     h('div', { class: 'bento' }, mission, levelTile(), tStreak, tStars, td.done ? off : null, strands, test, td.done ? null : off, badgeShelf())), nav('home'));
   if (!isEmpty(pending)) celebrate(pending);
 }
@@ -484,7 +577,7 @@ function viewMap() {
           h('span', { class: `pill ${status}` }, u(T[status])),
           bar(s ? s.p : 0, 'thin')));
     }))));
-  mount(header(), h('main', { class: 'wrap' }, tabs, groups), nav('map'));
+  mount(header(), h('main', { class: 'wrap' }, h('h1', { class: 'page-h' }, u(T.map)), tabs, groups), nav('map'));
 }
 function skillSheet(sk) {
   const s = state.skills[sk.id], ok = unlocked(sk, state.skills);
@@ -533,7 +626,9 @@ function viewParent() {
       persist(); f.querySelector('#pin').value = '';
       if (!showLock()) { err.textContent = u(T.wrongPin); err.hidden = false; }
     });
-    mount(header(), h('main', { class: 'wrap' }, f), nav('parent'));
+    mount(header(), h('main', { class: 'wrap' }, f,
+      state.account && h('div', { class: 'actions wrap-row' },
+        h('button', { class: 'btn ghost', onclick: () => { loginIntent = 'parent'; go('login'); } }, u(T.guardianLogin)))), nav('parent'));
     f.querySelector('#pin').focus();
     return;
   }
@@ -567,7 +662,7 @@ function viewParent() {
   const askCard = h('section', { class: 'card' }, h('div', { class: 'eyebrow' }, u(T.asks)),
     asks.length ? h('ul', { class: 'asks' }, asks.map(a => h('li', {}, h('span', {}, `${a.d} · ${byId[a.s] ? t(byId[a.s].title) : a.s}: ${a.q}`),
       h('button', { class: 'btn small', onclick: () => { a.done = true; persist(); viewParent(); } }, u(T.resolved))))) : h('p', { class: 'muted' }, u(T.noAsks)));
-  mount(header(), h('main', { class: 'wrap' }, week, helpCard, askCard, mist, road, settingsCard(), pinCard(), packsCard(), backupCard(),
+  mount(header(), h('main', { class: 'wrap' }, h('h1', { class: 'page-h' }, u(T.parent)), accountFlow.card(), flow.card(), week, helpCard, askCard, mist, road, settingsCard(), pinCard(), packsCard(), backupCard(),
     h('button', { class: 'btn ghost', onclick: () => { parentOpen = false; go('home'); } }, u(T.lockParent))), nav('parent'));
 }
 function settingsCard() {
@@ -580,13 +675,18 @@ function settingsCard() {
     h('label', { for: 's-cls' }, u(T.classIn)),
     h('select', { id: 's-cls' }, [3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(c => h('option', { value: String(c), selected: clsNow === c }, String(c)))),
     h('fieldset', {}, h('legend', {}, u(T.subjects)), STRANDS.map(s => h('label', { class: 'check' }, h('input', { type: 'checkbox', value: s, checked: !(p.off || []).includes(s) }), strandName(s)))),
-    h('label', { class: 'check' }, h('input', { type: 'checkbox', id: 's-read', checked: !!p.autoRead }), t(L('Read explanations aloud after a wrong answer', 'गलत उत्तर के बाद व्याख्या पढ़कर सुनाएँ'))),
+    h('label', { class: 'check' + (purposeOn(state.consent, 'readaloud') ? '' : ' off') },
+      h('input', { type: 'checkbox', id: 's-read', checked: !!p.autoRead, disabled: !purposeOn(state.consent, 'readaloud') }),
+      t(purposeOn(state.consent, 'readaloud')
+        ? L('Read explanations aloud after a wrong answer', 'गलत उत्तर के बाद व्याख्या पढ़कर सुनाएँ')
+        : L('Read-aloud is off because this purpose was not consented to.', 'पढ़कर सुनाना बंद है क्योंकि इस उद्देश्य की सहमति नहीं दी गई।'))),
     h('button', { class: 'btn primary', type: 'submit' }, u(T.save)));
   f.addEventListener('submit', e => {
     e.preventDefault();
     p.lang = f.querySelector('#s-lang').value; p.dailyQ = +f.querySelector('#s-daily').value;
     const c = +f.querySelector('#s-cls').value;
     if (c !== clsNow) { p.cls = c; p.ay0 = academicYear(now()); } // the chosen class is the class for the session running today
+    state.consent = setChildDetails(state.consent, { cls: p.cls }, now());
     p.off = [...f.querySelectorAll('fieldset input')].filter(x => !x.checked).map(x => x.value);
     if (p.off.length === STRANDS.length) p.off = [];
     p.autoRead = f.querySelector('#s-read').checked;
@@ -646,7 +746,13 @@ function backupCard() {
     note, goBtn,
     undo && undo.profile && h('button', { class: 'btn ghost', onclick: () => { const prev = readUndo(storage); if (!prev) return; keepUndo(storage); state = prev; rebuildSkills(); persist(); toast(u(T.undone)); parentOpen = false; go('home'); } }, u(T.undo)),
     h('details', {}, h('summary', {}, u(T.reset)), h('label', { for: 'b-reset' }, u(T.resetConfirm)), confirm,
-      h('button', { class: 'btn danger', onclick: () => { if (confirm.value.trim() === 'ERASE') { keepUndo(storage); storage.removeItem(STORE_KEY); state = freshState(); rebuildSkills(); parentOpen = false; render(); } } }, u(T.reset))));
+      h('button', { class: 'btn danger', onclick: () => {
+        if (confirm.value.trim() !== 'ERASE') return;
+        guardianAction(() => {
+          keepUndo(storage); storage.removeItem(STORE_KEY);
+          state = freshState(); rebuildSkills(); endGuardianSession(); appUnlocked = false; parentOpen = false; render();
+        });
+      } }, u(T.reset))));
 }
 function packsCard() {
   const file = h('input', { type: 'file', id: 'p-file', accept: '.json,application/json' });
@@ -683,19 +789,39 @@ function restoreCard() {
 function go(route) { if (location.hash !== '#' + route) location.hash = route; else render(); }
 function render() {
   voice.stop();
-  if (!state.profile) return viewSetup();
+  if (!state.profile) {
+    // First run, in order: notice and consent, guardian account, child profile. A reload
+    // between steps resumes at the first unfinished step instead of repeating a finished one.
+    if (!verifyConsent(state.consent, now()).ok) return flow.start();
+    if (!state.account) return accountFlow.register();
+    return viewSetup();
+  }
   if (run) return; // never navigate away from a running session by hash
   const r = (location.hash || '#home').slice(1);
   document.documentElement.lang = M() === 'hi' ? 'hi' : 'en';
   document.querySelectorAll('.sheet').forEach(x => x.remove());
-  if (r !== 'parent' || Date.now() - parentSeen > PARENT_IDLE_MS) parentOpen = false; // leaving the parent area locks it
+  // No consent, a withdrawn record, a damaged digest or a year-old record: the learning
+  // screens are closed until a guardian deals with it. No exceptions on any route.
+  const consent = verifyConsent(state.consent, now());
+  if (!consent.ok) return flow.renew(consent);
+  // An account is part of the gate: without it there is no authority to change privacy settings.
+  if (!state.account) return accountFlow.register();
+  if (state.account.requireUnlock && !appUnlocked) { parentOpen = false; return accountFlow.login(); }
+  if ((r !== 'parent' && r !== 'consent' && r !== 'login') || Date.now() - parentSeen > PARENT_IDLE_MS) {
+    parentOpen = false; endGuardianSession(); // the parent area and its guardian session end together
+  }
+  // Leaving the sign-in screen abandons whatever it was opened for: no stale erasure callback
+  // and no stale "return to parent" intent can survive to a later login.
+  if (r !== 'login') { pendingAfterLogin = null; loginIntent = null; }
+  if (r === 'consent') return flow.renew(consent);
+  if (r === 'login') return accountFlow.login();
   if (r === 'map') return viewMap();
   if (r === 'parent') return viewParent();
   return viewHome();
 }
 window.addEventListener('hashchange', () => { if (run) { run.s.finish(); persist(); run = null; } render(); });
 // The parent area also locks when left idle. (Not on backgrounding: the file picker hides the page on phones.)
-setInterval(() => { if (parentOpen && Date.now() - parentSeen > PARENT_IDLE_MS) { parentOpen = false; if (!run && state.profile) render(); } }, 30000);
+setInterval(() => { if (parentOpen && Date.now() - parentSeen > PARENT_IDLE_MS) { parentOpen = false; endGuardianSession(); if (!run && state.profile) render(); } }, 30000);
 document.addEventListener('pointerdown', () => { if (parentOpen) parentSeen = Date.now(); }, true);
 document.addEventListener('keydown', () => { if (parentOpen) parentSeen = Date.now(); }, true);
 // Another tab changed the saved progress: take the newer copy instead of overwriting it later.

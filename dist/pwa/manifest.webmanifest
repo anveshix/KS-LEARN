@@ -2,7 +2,7 @@
  "id": "./",
  "name": "KS-LEARN — Small beginnings. Lasting growth.",
  "short_name": "KS-LEARN",
- "description": "Personal mastery learning for class 3–9, Hindi and English. Works offline. No accounts, no ads.",
+ "description": "Personal mastery learning for class 3–9, Hindi and English. Works offline. Device-local guardian account, no ads, no tracking.",
  "start_url": "./",
  "scope": "./",
  "display": "standalone",
