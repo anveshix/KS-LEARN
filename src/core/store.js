@@ -46,7 +46,12 @@ function skillState(s) {
     p: num(s.p, 0.01, 0.995, 0.2), n, c: int(s.c, 0, n, 0), run: int(s.run, 0, 1e6, 0), bad: int(s.bad, 0, 1e6, 0),
     m: s.m === true, due: date(s.due), st: int(s.st, 0, 5, 0), fast: s.fast === true, help: s.help === true, seen: s.seen === true,
     msc, ms: int(s.ms, 0, 180000, 0), last: date(s.last),
+    scn: int(s.scn, 0, 1e6, 0), scl: int(s.scl, 0, 4, 0), bp: null,
+    hn: int(s.hn, 0, 1e6, 0), he: int(s.he, 0, 1e6, 0), ln: int(s.ln, 0, 1e6, 0), lc: int(s.lc, 0, 1e6, 0),
   };
+  if (obj(s.bp) && Number.isFinite(s.bp.l) && Number.isFinite(s.bp.s)) {
+    out.bp = { l: num(s.bp.l, 0.03, 0.3, 0.12), s: num(s.bp.s, 0.01, 0.4, 0.1) };
+  }
   if (date(s.mst)) out.mst = s.mst;
   if (Array.isArray(s.recent)) out.recent = s.recent.slice(-8).map(k => str(String(k), 60));
   if (out.m && !out.due) out.due = out.last || null;
@@ -68,12 +73,16 @@ export function sanitize(raw) {
     if (!obj(r) || !date(r.d) || !SKILL_ID.test(r.s)) continue;
     const row = { d: r.d, s: r.s, ok: r.ok ? 1 : 0, ms: int(r.ms, 0, 180000, 0) };
     if (typeof r.m === 'string' && WORD.test(r.m)) row.m = r.m;
+    if (r.a === 1) { row.a = 1; row.w = num(r.w, 0.05, 1, 0.5); row.lv = int(r.lv, 1, 4, 1); }
+    else { row.w = 1; row.lv = 0; }
+    if (Number.isFinite(r.p0)) row.p0 = num(r.p0, 0.001, 0.999, 0.2);
     st.log.push(row);
   }
   if (obj(raw.days)) for (const d of Object.keys(raw.days).filter(k => DATE.test(k)).sort().slice(-LIMITS.days)) {
     const v = raw.days[d]; if (!obj(v)) continue;
     const q = int(v.q, 0, 1e5, 0);
     st.days[d] = { q, c: int(v.c, 0, q, 0), ms: int(v.ms, 0, 864e5, 0), mq: int(v.mq, 0, q, v.done === true ? q : 0), done: v.done === true };
+    if (int(v.h, 0, 1e5, 0)) st.days[d].h = int(v.h, 0, 1e5, 0);
   }
   st.stars = int(raw.stars, 0, 1e9, 0);
   // Rewards: older saves have none; their level counts as already celebrated.

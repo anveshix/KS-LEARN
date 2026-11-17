@@ -15,11 +15,15 @@ fails if the bundle gains a `fetch`, a socket or an external resource
 | Data | Why | Purpose id | Retention | Shared with |
 |---|---|---|---|---|
 | Nickname, class, language, subject choices | Choose suitable questions | `teach` | Until erased | Nobody |
-| Answers, timing, mastery scores, review dates, streak, stars | Spaced revision and the mission | `memory` | Until erased | Nobody |
+| Answers, timing, mastery estimate, help taken (scaffold count and rung), review dates, streak, stars | Spaced revision, the mission and the parent's learning card | `memory` | Until erased | Nobody |
 | Parent PIN (salted SHA-256, 4000 rounds) | Keep the parent area away from the child | `teach` | Until changed or erased | Nobody |
 | Consent record: guardian name, relation, child's age and age band, purposes, verification method, digest, audit trail | Prove consent was given and keep it checkable | legal basis for all of the above | Until erased; re-checked every 12 months | Nobody, unless the guardian exports the receipt |
 | Guardian account: display name, PBKDF2/SHA-256 passphrase hashes, recovery-code hash, login times | Only the guardian can change privacy settings or erase data; the passphrase is never stored | `account` | Until erased; removed with the learning data | Nobody |
 | Voice | The device's own text-to-speech reads a question aloud | `readaloud` | Not stored at all | Nobody |
+
+The learning model itself (BKT estimates and personal slip/learn rates) is arithmetic on
+those local records. It is not a separate dataset, is never transmitted, and is deleted with
+the records it is derived from; see [LEARNING.md](LEARNING.md).
 
 Never collected: audio or video recordings, camera, location, contacts, advertising id,
 device fingerprints, behavioural profiles, third-party analytics. The optional `voice`

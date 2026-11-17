@@ -48,6 +48,7 @@ export const MSG = {
   scaffoldOk: L('Yes! That is the key idea.', 'हाँ! यही मुख्य बात है।'),
   scaffoldNo: L('Almost! Here is how it works:', 'लगभग! ऐसे होता है:'),
   retry: L('Second try. You can do this!', 'दूसरा प्रयास। तुम कर सकते हो!'),
+  tryAgain: L('Try it again', 'फिर से कोशिश करो'),
   comeback: L('Comeback! Mistakes help the brain grow.', 'शानदार वापसी! गलतियाँ दिमाग़ को बढ़ाती हैं।'),
   notYet: L('Not yet, and that is okay. Here is the answer:', 'अभी नहीं, और यह ठीक है। उत्तर यह है:'),
   hintLbl: L('Hint', 'संकेत'),
