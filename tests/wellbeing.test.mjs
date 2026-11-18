@@ -6,7 +6,7 @@ import {
   LIMIT_CHOICES, DEFAULT_LIMIT_MIN, GAP_CREDIT_MS, TICK_CREDIT_CAP_MS, MAX_ACTIVE_MS,
   freshWellbeing, ensureWellbeing, limitMs, summary, tick, setLimit, noteBreak, noteLayer, clock, dayKey,
 } from '../src/core/wellbeing.js';
-import { freshState, sanitize, save, exportText } from '../src/core/store.js';
+import { freshState, sanitize, save, exportText, STORE_KEY } from '../src/core/store.js';
 import { settle } from '../src/core/rewards.js';
 
 const D1 = '2026-11-17', D2 = '2026-11-18';
@@ -144,7 +144,7 @@ test('saving and exporting never write a heartbeat timestamp', () => {
   st.wellbeing.activeMs = 1234;
   const mem = {};
   save({ setItem: (k, v) => { mem[k] = v; } }, st);
-  const written = JSON.parse(mem['kslearn.v2']);
+  const written = JSON.parse(mem[STORE_KEY]);
   assert.equal(written.wellbeing.lastTick, 0);
   assert.equal(written.wellbeing.activeMs, 1234);
   assert.equal(st.wellbeing.lastTick, 1_700_000_000_000, 'the live state keeps its clock');

@@ -18,6 +18,31 @@ Any library that needs a network fetch, a worker/asset pipeline or a multi-megab
 would delete promise 1 or 3. So the work is done in the existing vanilla module system
 (`src/core`, `src/ui`) with the same CSP-safe DOM helper (`src/ui/dom.js`).
 
+## Storage integrity (schema 3)
+
+The state document is a child's whole history, so its failure modes are treated as product
+defects, not edge cases.
+
+- **Key and schema.** `kslearn.v3` (schema `v: 3`). A v2 document is read once from
+  `kslearn.v2`, migrated through `sanitize()` and written under the new key; the old key is
+  never deleted by the app, so a bad upgrade is recoverable.
+- **One writer per device.** `src/core/lease.js` elects a writer with a 20-second lease. Other
+  tabs are readers: they show a takeover card instead of saving, and a `storage` event can no
+  longer replace in-memory state, abort a session or close the parent area. Taking over is a
+  deliberate tap.
+- **Checksummed backups.** Exports carry a 64-bit FNV-1a checksum over canonical JSON. A file
+  edited by hand or truncated in transfer is refused with a clear message before anything is
+  restored, and the parent sees a preview (child, class, skill count) before the second tap.
+- **Two rolling snapshots.** At most one snapshot per day is kept in `kslearn.bak1` and
+  `kslearn.bak2`. If the main document is unreadable, `load()` falls back through them and
+  reports which copy was used; the damaged text is preserved in `kslearn.v3.damaged`.
+- **Bounded state.** Log 6,000 rows, 4,000 days, 3,000 skills, 60 asks, 20 packs; imports are
+  capped at 3 MB. `sanitize()` rebuilds every field, so no unknown key, prototype, absurd
+  number or control character survives.
+
+A wrong answer is never a reason to lose progress; neither is a second tab, a half-written
+document or a hand-edited file.
+
 ## Library by library
 
 | Brief | Decision | Why, and what the learner gets |

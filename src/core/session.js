@@ -2,12 +2,22 @@
 import { rng } from './rng.js';
 import { check } from './check.js';
 import { update, guessRate } from './mastery.js';
-import { rankFrontier, classNow } from './planner.js';
+import { rankFrontier, aheadFrontier, classNow } from './planner.js';
 import { evidenceFor } from './scaffold.js';
 
-export function makeQuestion(sk, st, seed) {
+// Question history for measurement sessions lives in memory only: a test must not write
+// anything, not even its own recent-question list, into the saved document.
+const testRecent = new WeakMap();
+
+export function makeQuestion(sk, st, seed, track = true) {
   const s = st[sk.id];
-  const recent = s.recent || (s.recent = []);
+  // A test is not practice: its question history is kept out of the saved state.
+  let recent;
+  if (track) recent = s.recent || (s.recent = []);
+  else {
+    recent = testRecent.get(st);
+    if (!recent) { recent = []; testRecent.set(st, recent); }
+  }
   let q;
   for (let i = 0; i < 12; i++) {
     q = sk.gen(rng(seed + i * 7919));
@@ -22,24 +32,31 @@ export function makeQuestion(sk, st, seed) {
 export function createSession(app, plan, opts = {}) {
   const st = app.state.skills;
   let i = 0, cur = null, t0 = 0, firstTry = true;
-  const stats = { asked: 0, correct: 0, assisted: 0, mastered: [], stuck: [], stars: 0 };
+  const stats = { asked: 0, correct: 0, assisted: 0, mastered: [], stuck: [], nearly: [], stars: 0 };
   let seed = (opts.seed || (Date.now() & 0x7fffffff)) >>> 0;
   const skip = new Set(); // skills the learner got stuck on in this session: move on, a parent is flagged
   let focus = null;       // stay with one skill until it is mastered or set aside: depth before breadth
   const goal = opts.mission ? (opts.goal || app.state.profile.dailyQ || plan.length) : 0;
 
+  // Within-class first; an explicit, labelled stretch skill only when the class is exhausted.
   function pickSkill(step) {
-    if (step.kind === 'review' || step.kind === 'skill') return app.byId[step.skill];
-    const f = rankFrontier(app.skills, st, step.strand, classNow(app.state.profile, app.now()));
-    if (focus && !skip.has(focus) && f.some(sk => sk.id === focus)) return app.byId[focus];
+    if (step.kind === 'review' || step.kind === 'skill') return { sk: app.byId[step.skill], ahead: step.ahead === true };
+    const cls = classNow(app.state.profile, app.now());
+    let f = rankFrontier(app.skills, st, step.strand, cls), ahead = false;
+    if (!f.length) { f = aheadFrontier(app.skills, st, step.strand, cls); ahead = f.length > 0; }
+    if (focus && !skip.has(focus)) {
+      const same = f.find(sk => sk.id === focus);
+      if (same) return { sk: same, ahead };
+    }
     const pick = f.find(sk => !skip.has(sk.id)) || f[0] || null;
     focus = pick ? pick.id : null;
-    return pick;
+    return { sk: pick, ahead };
   }
   function next() {
     while (i < plan.length) {
       const step = plan[i];
-      const sk = pickSkill(step);
+      const picked = pickSkill(step);
+      const sk = picked.sk;
       const s = sk && st[sk.id];
       if (!s) { i++; continue; }
       if (!s.seen && step.kind === 'learn' && !opts.test) {
@@ -47,9 +64,9 @@ export function createSession(app, plan, opts = {}) {
         const ex = sk.gen(rng(seed += 101));
         return (cur = { type: 'lesson', skill: sk, example: ex, index: i, total: plan.length });
       }
-      const q = makeQuestion(sk, st, (seed += 104729));
+      const q = makeQuestion(sk, st, (seed += 104729), !opts.test);
       t0 = app.now().getTime(); firstTry = true;
-      return (cur = { type: 'q', skill: sk, q, review: step.kind === 'review', index: i, total: plan.length });
+      return (cur = { type: 'q', skill: sk, q, review: step.kind === 'review', ahead: picked.ahead, index: i, total: plan.length });
     }
     return (cur = { type: 'done', stats });
   }
@@ -60,10 +77,18 @@ export function createSession(app, plan, opts = {}) {
     if (!res.valid) return res;
     const ms = Math.min(180000, app.now().getTime() - t0);
     const day = app.day();
+    // A test is a measurement, not practice. It never moves the estimate, the mastery date,
+    // the review schedule, the "stuck" flag, stars or the daily counters.
+    if (opts.test) {
+      stats.asked++; if (res.ok) stats.correct++;
+      i++;
+      return { ...res, events: [], q, skill: sk, remedy: res.trap ? app.misc[res.trap] : null };
+    }
     const p0 = st[sk.id].p;
     const ev = update(st[sk.id], res.ok, guessRate(q), day, res.trap, ms);
     stats.asked++; if (res.ok) { stats.correct++; stats.stars++; app.state.stars = (app.state.stars || 0) + 1; }
     if (ev.includes('mastered')) { stats.mastered.push(sk.id); stats.stars += 5; app.state.stars += 5; focus = null; }
+    if (ev.includes('nearly') && !stats.nearly.includes(sk.id)) stats.nearly.push(sk.id);
     if (ev.includes('stuck')) {
       stats.stuck.push(sk.id); skip.add(sk.id);
       for (const p of sk.pre) if (st[p] && st[p].m) st[p].due = day; // revisit what this skill is built on

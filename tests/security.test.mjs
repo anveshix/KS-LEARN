@@ -58,7 +58,7 @@ test('sanitize rebuilds state field by field and drops everything unexpected', (
   assert.deepEqual(Object.keys(st.days), ['2026-11-16']); assert.equal(st.days['2026-11-16'].c, 5); assert.equal(st.days['2026-11-16'].done, false);
   assert.equal(st.stars, 0); assert.equal(st.asks.length, 1); assert.equal(st.asks[0].q.length, 400);
   assert.deepEqual(st.packs, []); assert.deepEqual(st.lock, { f: 0, until: 0 }); assert.equal(st.extra, undefined);
-  assert.equal(sanitize(null), null); assert.equal(sanitize([]), null); assert.equal(sanitize({ v: 3, skills: {} }), null);
+  assert.equal(sanitize(null), null); assert.equal(sanitize([]), null); assert.equal(sanitize({ v: 4, skills: {} }), null);
   assert.equal(sanitize({ v: 2, skills: {}, profile: { name: 'A', pin: 'not-a-hash' } }).profile, null, 'a profile without a valid PIN record is refused');
 });
 
@@ -75,7 +75,7 @@ test('a sanitized hostile state still runs a full session', () => {
 
 test('import refuses oversized, foreign and newer-version files; export never carries the lock state', () => {
   assert.throws(() => importText('x'.repeat(MAX_IMPORT_BYTES + 1)), /too large/);
-  assert.throws(() => importText(wrap({ v: 3, skills: {}, profile: prof() })), /newer version/);
+  assert.throws(() => importText(wrap({ v: 4, skills: {}, profile: prof() })), /newer version/);
   assert.throws(() => importText(wrap({ v: 2, skills: {} })), /not a KS-LEARN backup/);
   assert.throws(() => importText('[1,2]'), /not a KS-LEARN backup/);
   assert.throws(() => importText(42), /not a KS-LEARN backup/);

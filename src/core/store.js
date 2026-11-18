@@ -10,9 +10,12 @@ import { LAB_ID, labById } from './labs.js';
 import { freshWellbeing, dayKey, LIMIT_CHOICES, KOSHA_IDS, MAX_ACTIVE_MS, DEFAULT_LIMIT_MIN } from './wellbeing.js';
 import { QUEST_IDS, freshQuests } from './quests.js';
 import { STORY_ID, storyById } from './stories.js';
-export const STORE_KEY = 'kslearn.v2';
-export const VERSION = 2;
+export const STORE_KEY = 'kslearn.v3';
+export const LEGACY_KEY = 'kslearn.v2';       // read once, then migrated; never written again
+export const VERSION = 3;
+export const LEGACY_VERSION = 2;
 export const MAX_IMPORT_BYTES = 3 * 1024 * 1024;
+export const BACKUP_KEYS = ['kslearn.bak1', 'kslearn.bak2'];
 const LIMITS = { log: 6000, days: 4000, asks: 60, packs: 20, skills: 3000 };
 
 export const freshState = () => ({ v: VERSION, profile: null, consent: null, account: null, skills: {}, log: [], days: {}, stars: 0, rw: freshRw(0), asks: [], packs: [], labs: {}, wellbeing: freshWellbeing(dayKey()), quests: freshQuests(dayKey()), stories: {}, lock: { f: 0, until: 0 } });
@@ -49,7 +52,7 @@ function skillState(s) {
   const out = {
     p: num(s.p, 0.01, 0.995, 0.2), n, c: int(s.c, 0, n, 0), run: int(s.run, 0, 1e6, 0), bad: int(s.bad, 0, 1e6, 0),
     m: s.m === true, due: date(s.due), st: int(s.st, 0, 5, 0), fast: s.fast === true, help: s.help === true, seen: s.seen === true,
-    msc, ms: int(s.ms, 0, 180000, 0), last: date(s.last),
+    msc, ms: int(s.ms, 0, 180000, 0), last: date(s.last), cand: date(s.cand),
     scn: int(s.scn, 0, 1e6, 0), scl: int(s.scl, 0, 4, 0), bp: null,
     hn: int(s.hn, 0, 1e6, 0), he: int(s.he, 0, 1e6, 0), ln: int(s.ln, 0, 1e6, 0), lc: int(s.lc, 0, 1e6, 0),
   };
@@ -57,6 +60,7 @@ function skillState(s) {
     out.bp = { l: num(s.bp.l, 0.03, 0.3, 0.12), s: num(s.bp.s, 0.01, 0.4, 0.1) };
   }
   if (date(s.mst)) out.mst = s.mst;
+  if (date(s.relearn)) out.relearn = s.relearn;
   if (Array.isArray(s.recent)) out.recent = s.recent.slice(-8).map(k => str(String(k), 60));
   if (out.m && !out.due) out.due = out.last || null;
   return out;
@@ -64,7 +68,9 @@ function skillState(s) {
 
 // -> clean state, or null when the document is not a KS-LEARN state at all.
 export function sanitize(raw) {
-  if (!obj(raw) || raw.v !== VERSION || !obj(raw.skills)) return null;
+  // v2 documents are migrated in place: the only change is the two new per-skill dates,
+  // which sanitize() rebuilds from scratch anyway.
+  if (!obj(raw) || (raw.v !== VERSION && raw.v !== LEGACY_VERSION) || !obj(raw.skills)) return null;
   const st = freshState();
   st.profile = profile(raw.profile);
   // A consent record is kept even when its digest no longer matches: the app must be able
@@ -142,20 +148,50 @@ export function sanitize(raw) {
 
 // -> { state, recovered } recovered=true means unreadable data was found and set aside (never silently overwritten).
 export function load(storage) {
-  let text = null;
-  try { text = storage.getItem(STORE_KEY); } catch { /* storage unavailable */ }
-  if (text == null) return { state: freshState(), recovered: false };
+  const read = k => { try { return storage.getItem(k); } catch { return null; } };
+  let text = read(STORE_KEY), migrated = false;
+  if (text == null) {
+    // One-time upgrade from the v2 key. Nothing is deleted: the old copy stays as a fallback.
+    const legacy = read(LEGACY_KEY);
+    if (legacy != null) { text = legacy; migrated = true; }
+  }
+  if (text == null) return { state: freshState(), recovered: false, migrated: false, source: null };
   let st = null;
   try { st = sanitize(JSON.parse(text)); } catch { /* not JSON */ }
-  if (st) return { state: st, recovered: false };
+  if (st) return { state: st, recovered: false, migrated, source: migrated ? LEGACY_KEY : STORE_KEY };
+  // The main document is unreadable. Set it aside, then try the two rolling snapshots in turn.
   try { storage.setItem(STORE_KEY + '.damaged', text.slice(0, MAX_IMPORT_BYTES)); } catch { /* best effort */ }
-  return { state: freshState(), recovered: true };
+  for (const key of BACKUP_KEYS) {
+    const snap = read(key);
+    if (snap == null) continue;
+    let alt = null;
+    try { alt = sanitize(JSON.parse(snap)); } catch { /* not JSON */ }
+    if (alt) return { state: alt, recovered: true, migrated: false, source: key };
+  }
+  return { state: freshState(), recovered: true, migrated: false, source: null };
 }
 // The heartbeat clock is a live-session detail. It is deliberately written as zero, so no
 // sub-day timestamp is ever stored or exported — only the day-level counters are.
 const withoutClock = state => (state && state.wellbeing ? { ...state, wellbeing: { ...state.wellbeing, lastTick: 0 } } : state);
+const BACKUP_META = 'kslearn.bak.meta';
+// Snapshot at most once per day, keeping two generations. A single save can never overwrite
+// the only copy of a child's progress.
+function rotate(storage, text, day) {
+  try {
+    const meta = JSON.parse(storage.getItem(BACKUP_META) || '{}');
+    const prev = storage.getItem(STORE_KEY);
+    if (prev == null || prev === text || meta.day === day) return;
+    const older = storage.getItem(BACKUP_KEYS[0]);
+    if (older != null) storage.setItem(BACKUP_KEYS[1], older);
+    storage.setItem(BACKUP_KEYS[0], prev);
+    storage.setItem(BACKUP_META, JSON.stringify({ day }));
+  } catch { /* snapshots are best effort, never a reason to lose the save */ }
+}
 export function save(storage, state) {
-  try { storage.setItem(STORE_KEY, JSON.stringify(withoutClock(state))); return true; } catch { return false; }
+  const text = JSON.stringify(withoutClock(state));
+  const day = (state && state.wellbeing && state.wellbeing.day) || null;
+  rotate(storage, text, day);
+  try { storage.setItem(STORE_KEY, text); return true; } catch { return false; }
 }
 // One-step undo for destructive actions (restore, erase): keeps the previous document.
 export function keepUndo(storage) {
@@ -165,15 +201,47 @@ export function readUndo(storage) {
   try { return sanitize(JSON.parse(storage.getItem(STORE_KEY + '.undo'))); } catch { return null; }
 }
 
-export const exportText = state => JSON.stringify({ app: 'ks-learn', v: VERSION, exported: new Date().toISOString(), state: { ...withoutClock(state), lock: { f: 0, until: 0 } } });
+// Canonical JSON: sorted keys, so the same state always produces the same checksum in
+// every browser. Used only for integrity, never as the stored format.
+export function stable(value) {
+  if (Array.isArray(value)) return '[' + value.map(stable).join(',') + ']';
+  if (obj(value)) return '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + stable(value[k])).join(',') + '}';
+  return JSON.stringify(value === undefined ? null : value);
+}
+// FNV-1a, 64-bit, over UTF-8 bytes: 16 hex characters. Not a security primitive; it detects
+// truncated, hand-edited or half-synced backups, which is the actual failure mode here.
+export function checksum(text) {
+  let h = 0xcbf29ce484222325n;
+  const bytes = new TextEncoder().encode(String(text));
+  for (const b of bytes) { h ^= BigInt(b); h = (h * 0x100000001b3n) & 0xffffffffffffffffn; }
+  return h.toString(16).padStart(16, '0');
+}
+export const sumOf = state => checksum(stable(withoutClock(state)));
+export const exportText = state => {
+  // Round-trip first: JSON is the wire format, so the checksum must be over exactly what a
+  // reader will parse (undefined fields disappear, numbers normalise).
+  const clean = JSON.parse(JSON.stringify({ ...withoutClock(state), lock: { f: 0, until: 0 } }));
+  return JSON.stringify({ app: 'ks-learn', v: VERSION, exported: new Date().toISOString(), state: clean, sum: checksum(stable(clean)) });
+};
 const NOT = 'This is not a KS-LEARN backup.';
-export function importText(text) {
+// -> { state, signed, warnings, version, exported }. Throws when the file is unusable.
+export function parseImport(text) {
   if (typeof text !== 'string' || text.length > MAX_IMPORT_BYTES) throw new Error(typeof text === 'string' ? 'This file is too large to be a KS-LEARN backup.' : NOT);
   let o;
   try { o = JSON.parse(text); } catch { throw new Error(NOT); }
   if (!obj(o) || o.app !== 'ks-learn' || !obj(o.state)) throw new Error(NOT);
   if (o.state.v > VERSION) throw new Error('This backup was made by a newer version of KS-LEARN. Update the app first.');
+  const warnings = [];
+  let signed = false;
+  if (typeof o.sum === 'string') {
+    signed = true;
+    if (checksum(stable(o.state)) !== o.sum) throw new Error('This backup is damaged or was edited: the checksum does not match.');
+  } else {
+    warnings.push('This backup has no checksum (made by an older version); it will be imported as-is.');
+  }
+  if (o.state.v < VERSION) warnings.push(`This backup is from version ${o.state.v} and will be upgraded.`);
   const st = sanitize(o.state);
   if (!st || !st.profile) throw new Error(NOT);
-  return st;
+  return { state: st, signed, warnings, version: o.state.v, exported: typeof o.exported === 'string' ? o.exported.slice(0, 40) : null };
 }
+export const importText = text => parseImport(text).state;

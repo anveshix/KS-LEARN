@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { posterior, transition, retention, decay, priority, zpd, adapt, paramsOf, fitParams, refit, BKT, clamp } from '../src/core/bkt.js';
-import { newSkillState, update, guessRate, masteryReady, P } from '../src/core/mastery.js';
+import { newSkillState, update, guessRate, masteryReady, spacedReady, addDays, P } from '../src/core/mastery.js';
 import { sanitize, freshState } from '../src/core/store.js';
 import { SKILLS, BY_ID } from '../src/content/index.js';
 import { rng } from '../src/core/rng.js';
@@ -50,7 +50,9 @@ test('weight 0 is a no-op, weights are clamped, malformed state is safe', () => 
 test('slip rises after repeated misses on a supposedly secure skill; learn follows success', () => {
   const good = newSkillState(false);
   for (let i = 0; i < 4; i++) update(good, true, 0.25, day, null, 3000);
-  assert.ok(good.m);
+  assert.equal(good.m, false, 'one sitting is never mastery');
+  update(good, true, 0.25, addDays(day, 1), null, 3000);
+  assert.ok(good.m, 'a correct answer on a later day completes it');
   const secure = clone(good);
   for (let i = 0; i < 5; i++) update(secure, false, 0.25, day, null, 3000);
   assert.ok(paramsOf(secure).slip > P.slip, `slip adapted: ${paramsOf(secure).slip}`);
@@ -66,7 +68,9 @@ test('a high personal slip slows evidence but never makes mastery unreachable', 
   const s = newSkillState(false);
   s.bp = { l: 0.12, s: 0.25 };
   let ev = [];
-  for (let i = 0; i < 5 && !s.m; i++) ev = update(s, true, 0.25, day, null, 3000);
+  for (let i = 0; i < 6 && !ev.includes('nearly'); i++) ev = update(s, true, 0.25, day, null, 3000);
+  assert.ok(ev.includes('nearly'), `evidence gathered despite a high slip: p=${s.p}`);
+  for (let d = 1; d <= 4 && !s.m; d++) ev = update(s, true, 0.25, addDays(day, d), null, 3000);
   assert.ok(ev.includes('mastered'), `mastered despite a high slip: p=${s.p}`);
   assert.equal(s.m, true);
 });
@@ -86,6 +90,7 @@ test('retention decays for planning but never rewrites the stored estimate', () 
 test('per-skill isolation: one skill learning does not touch another', () => {
   const a = newSkillState(false), b = newSkillState(false);
   for (let i = 0; i < 4; i++) update(a, true, 0.25, day, null, 2000);
+  update(a, true, 0.25, addDays(day, 1), null, 2000);
   assert.ok(a.m);
   assert.equal(b.p, P.init); assert.equal(b.n, 0); assert.equal(b.bp, null);
 });
@@ -97,14 +102,18 @@ test('priority favours the zone of proximal development', () => {
   assert.ok(clamp(5, 0, 1) === 1);
 });
 
-test('review spacing survives the model change; a cold guess still cannot master a skill', () => {
+test('mastery needs a real gap: four same-day answers only make a candidate', () => {
   const s = newSkillState(false);
   let ev = [];
   for (let i = 0; i < 3; i++) ev = update(s, true, 0.25, day, null, 2000);
   assert.equal(s.m, false);
   ev = update(s, true, 0.25, day, null, 2000);
+  assert.ok(ev.includes('nearly'));
+  assert.equal(s.m, false, 'same-day evidence cannot master a skill');
+  assert.equal(spacedReady(s, day), false);
+  ev = update(s, true, 0.25, addDays(day, 1), null, 2000);
   assert.ok(ev.includes('mastered'));
-  assert.equal(s.due, '2026-11-18');
+  assert.equal(s.due, addDays(addDays(day, 1), P.gaps[0]));
   const g5 = newSkillState(false);
   for (let i = 0; i < 3; i++) update(g5, true, 0.5, day, null, 2000);
   assert.equal(g5.m, false, 'a 2-option guess is weak evidence');

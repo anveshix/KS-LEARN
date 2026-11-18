@@ -55,7 +55,7 @@ export function createQuestsUI(ctx) {
       h('div', { class: 'quest-offer-top' },
         h('span', { class: 'quest-ico', 'aria-hidden': 'true' }, def.icon),
         h('span', { class: 'quest-stars' }, `⭐ ${def.stars}`)),
-      h('h3', {}, t(def.title)),
+      h('h2', { class: 'quest-offer-h' }, t(def.title)),
       h('p', { class: 'muted small' }, t(def.desc)),
       h('button', { class: 'btn' + (compact ? ' small' : ' primary'), onclick: onPick }, u(Q.choose)));
   }

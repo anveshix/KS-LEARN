@@ -2,9 +2,11 @@
 import { SKILLS, BY_ID, MISC, STRAND_INFO } from '../content/index.js';
 import { tx, ui, L } from '../core/i18n.js';
 import { iso, addDays } from '../core/mastery.js';
-import { ensureState, buildMission, classNow, academicYear, strandProgress, dueReviews, frontier, unlocked, STRANDS } from '../core/planner.js';
+import { ensureState, buildMission, classNow, academicYear, strandProgress, dueReviews, frontier, aheadFrontier, contentGaps, unlocked, STRANDS, SUPPORTED_CLASSES } from '../core/planner.js';
 import { createSession, streak } from '../core/session.js';
-import { load, save, freshState, exportText, importText, keepUndo, readUndo, STORE_KEY, MAX_IMPORT_BYTES } from '../core/store.js';
+import { load, save, freshState, exportText, parseImport, keepUndo, readUndo, STORE_KEY, MAX_IMPORT_BYTES } from '../core/store.js';
+import { createLease } from '../core/lease.js';
+import { trapFocus } from './dialog.js';
 import { makePin, verifyPin, needsUpgrade, validPin, recordAttempt, lockedFor } from '../core/pin.js';
 import { LEVELS, BADGES, levelInfo, startReward, comebackReward, settle, isEmpty } from '../core/rewards.js';
 import { weekSummary, topMistakes, needsHelp, roadmap, skillStatus, learningModel } from '../core/insights.js';
@@ -39,6 +41,24 @@ const today = () => iso(now());
 
 const boot = load(storage);
 let state = boot.state;
+// One writer per device. A second tab is a reader until the learner explicitly takes over;
+// no storage event may replace the state of a tab that is mid-session.
+const lease = createLease(storage);
+let readOnly = false;
+function markReadOnly(announce) {
+  const first = !readOnly;
+  readOnly = true;
+  if (announce && first) {
+    toast(u(T.tabTaken), 6000);
+    if (!run && state.profile) render();
+  }
+}
+function writer() {
+  if (lease.holds()) { lease.renew(); readOnly = false; return true; }
+  if (!lease.peer() && lease.acquire()) { readOnly = false; return true; }
+  markReadOnly(true);
+  return false;
+}
 let skills = [], byId = {};
 // Packs come from files and backups, so each one is validated again before any of it is used.
 function rebuildSkills() {
@@ -58,6 +78,7 @@ rebuildSkills();
 const app = { get skills() { return skills; }, get byId() { return byId; }, get state() { return state; }, now, day: today, misc: MISC };
 let saveWarned = 0;
 function persist() {
+  if (!writer()) return false;
   const ok = save(storage, state);
   if (!ok && Date.now() - saveWarned > 30000) { saveWarned = Date.now(); toast(u(T.saveFailed), 6000); }
   return ok;
@@ -202,8 +223,11 @@ const voice = (() => {
 // ---------- shared pieces ----------
 const strandName = s => (STRAND_INFO[s] ? t(STRAND_INFO[s].name) : s);
 const enabledStrands = () => STRANDS.filter(s => !(state.profile.off || []).includes(s));
-function bar(frac, cls = '') {
-  return h('div', { class: 'bar ' + cls, role: 'progressbar', 'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(frac * 100)) }, h('i', { style: `width:${Math.max(0, Math.min(100, frac * 100)).toFixed(1)}%` }));
+function bar(frac, cls = '', label = '') {
+  return h('div', {
+    class: 'bar ' + cls, role: 'progressbar', 'aria-label': label || u(T.progress),
+    'aria-valuemin': '0', 'aria-valuemax': '100', 'aria-valuenow': String(Math.round(frac * 100)),
+  }, h('i', { style: `width:${Math.max(0, Math.min(100, frac * 100)).toFixed(1)}%` }));
 }
 function nav(active) {
   const item = (id, label, ico) => h('a', { href: '#' + id, class: 'tab' + (active === id ? ' on' : ''), 'aria-current': active === id ? 'page' : false }, h('span', { class: 'ico', 'aria-hidden': 'true' }, ico), h('span', {}, u(label)));
@@ -234,7 +258,7 @@ function viewSetup() {
     h('h1', {}, u(T.setupTitle)),
     h('label', { for: 'f-name' }, ui(T.nickname, 'bi')), h('input', { id: 'f-name', required: true, maxlength: '20', autocomplete: 'off' }),
     h('label', { for: 'f-cls' }, ui(T.classIn, 'bi')),
-    h('select', { id: 'f-cls' }, [3, 4, 5, 6, 7, 8].map(c => h('option', { value: String(c), selected: c === 4 }, String(c)))),
+    h('select', { id: 'f-cls' }, SUPPORTED_CLASSES.map(c => h('option', { value: String(c), selected: c === 4 }, String(c)))),
     h('label', { for: 'f-lang' }, ui(T.language, 'bi')),
     h('select', { id: 'f-lang' }, h('option', { value: 'bi' }, ui(T.langBi, 'bi')), h('option', { value: 'hi' }, ui(T.langHi, 'bi')), h('option', { value: 'en' }, ui(T.langEn, 'bi'))),
     h('label', { for: 'f-daily' }, ui(T.daily, 'bi')),
@@ -298,17 +322,20 @@ function rewardLines(r) {
   return out;
 }
 function celebrate(r) {
-  const close = () => { sheet.remove(); };
-  const sheet = h('div', { class: 'sheet', role: 'dialog', 'aria-label': u(T.rewards), onclick: e => { if (e.target === sheet) close(); } },
-    h('section', { class: 'card sheet-body celebrate' }, h('div', { class: 'eyebrow' }, u(T.awesome)), rewardLines(r), h('button', { class: 'btn primary big', id: 'cel-ok', onclick: close }, u(T.gotIt))));
-  document.body.append(sheet); confetti(); document.getElementById('cel-ok').focus();
+  const sheetEl = h('div', { class: 'sheet' },
+    h('section', { class: 'card sheet-body celebrate' }, h('div', { class: 'eyebrow' }, u(T.awesome)), rewardLines(r),
+      h('button', { class: 'btn primary big', id: 'cel-ok' }, u(T.gotIt))));
+  const ok = sheetEl.querySelector('#cel-ok');
+  const release = trapFocus(sheetEl, { onClose: () => { release(); sheetEl.remove(); }, initial: ok });
+  ok.addEventListener('click', () => { release(); sheetEl.remove(); });
+  document.body.append(sheetEl); confetti();
 }
 function levelTile() {
   const li = levelInfo(state.stars || 0);
   return h('section', { class: 'card tile b-wide level-tile' },
     h('div', { class: 'lv-row' }, h('div', { class: 'lv-ico', 'aria-hidden': 'true' }, li.level.icon),
       h('div', { class: 'lv-main' }, h('div', { class: 'eyebrow' }, `${u(T.level)} ${li.index + 1}`), h('h2', {}, t(li.level.name)),
-        bar(li.frac), h('small', { class: 'muted' }, li.next ? `${li.toNext} ${u(T.toNext)} ${t(li.next.name)} ${li.next.icon}` : u(T.maxLevel)))));
+        bar(li.frac, '', `${u(T.level)} ${li.index + 1}: ${t(li.level.name)}`), h('small', { class: 'muted' }, li.next ? `${li.toNext} ${u(T.toNext)} ${t(li.next.name)} ${li.next.icon}` : u(T.maxLevel)))));
 }
 function badgeShelf() {
   const got = state.rw.badges, n = Object.keys(got).length;
@@ -337,9 +364,14 @@ function viewHome() {
       const pr = strandProgress(skills, state.skills, s, cls);
       return h('button', { class: `strand s-${s}`, onclick: () => startPractice(s) },
         h('span', { class: 'sico', 'aria-hidden': 'true' }, ICON[s] || '📘'), h('span', { class: 'sname' }, strandName(s)),
-        bar(pr.classTotal ? pr.classMastered / pr.classTotal : 0),
+        bar(pr.classTotal ? pr.classMastered / pr.classTotal : 0, '', `${strandName(s)}: ${pr.classMastered}/${pr.classTotal}`),
         h('small', {}, `${pr.classMastered}/${pr.classTotal} ${u(T.thisClass)}${pr.ahead ? ` · +${pr.ahead} ${u(T.ahead)}` : ''}`));
     })));
+  const gaps = contentGaps(skills, p, d);
+  const gapCard = gaps.length ? h('section', { class: 'card b-wide content-gap' },
+    h('div', { class: 'eyebrow' }, `🧩 ${u(T.contentGap)}`),
+    h('p', { class: 'muted small' }, u(T.contentGapNote)),
+    h('p', { class: 'small' }, gaps.map(strandName).join(' · '))) : null;
   const questTile = questsUI.homeTile();
   const calmTile = wellbeingUI.homeTile();
   const storyTile = storiesUI.homeTile();
@@ -360,8 +392,23 @@ function viewHome() {
     h('div', { class: 'hello-row' },
       h('h1', { class: 'hello' }, `${u(T.hello)}, ${p.name}`),
       h('span', { class: 'program-chip' }, ui(T.program, 'bi'))),
-    h('div', { class: 'bento' }, mission, levelTile(), tStreak, tStars, td.done ? off : null, strands, test, td.done ? null : off, labsTile, questTile, calmTile, storyTile, badgeShelf())), nav('home'));
+    h('div', { class: 'bento' }, mission, levelTile(), tStreak, tStars, td.done ? off : null, gapCard, strands, test, td.done ? null : off, labsTile, questTile, calmTile, storyTile, badgeShelf())), nav('home'));
   if (!isEmpty(pending)) celebrate(pending);
+}
+
+// ---------- one writer per device ----------
+// A second tab is a reader. It never overwrites the writer and never shows stale progress as
+// if it were live. Taking over is a deliberate tap, so no child loses a mission by accident.
+function viewReadOnly() {
+  mount(header(), h('main', { class: 'wrap narrow' },
+    h('section', { class: 'card', role: 'alert' },
+      h('h1', {}, u(T.tabReadOnly)),
+      h('p', { class: 'muted' }, u(T.tabTaken)),
+      h('div', { class: 'actions wrap-row' },
+        h('button', { class: 'btn primary big', onclick: () => {
+          if (!lease.take()) return toast(u(T.tabReadOnly));
+          readOnly = false; state = load(storage).state; rebuildSkills(); render();
+        } }, u(T.tabTake))))), nav('home'));
 }
 
 // ---------- grow hub ----------
@@ -378,20 +425,32 @@ function viewGrow() {
 
 // ---------- sessions ----------
 let run = null; // { s: session, mode, results: [] }
+function writable() {
+  if (writer()) return true;
+  toast(u(T.tabReadOnly), 5000);
+  return false;
+}
 function startMission() {
+  if (!writable()) return;
   const p = state.profile, day = today(), td = state.days[day] || { mq: 0 };
   const plan = buildMission(skills, state.skills, { ...p, dailyQ: Math.max(1, p.dailyQ - (td.mq || 0)) }, now(), day);
+  if (!plan.length) { toast(u(T.contentGapNote), 7000); return; }
   begin(createSession(app, plan, { mission: true, goal: p.dailyQ }), 'mission');
 }
 function startPractice(strand) {
+  if (!writable()) return;
   const td = state.days[today()] || { q: 0 };
   if (td.q >= state.profile.dailyQ * 2.5) { toast(u(T.enough)); return; }
   begin(createSession(app, Array.from({ length: 8 }, () => ({ kind: 'learn', strand }))), 'practice');
 }
-function startSkill(id) { begin(createSession(app, Array.from({ length: 6 }, () => ({ kind: 'skill', skill: id }))), 'practice'); }
+function startSkill(id) { if (!writable()) return; begin(createSession(app, Array.from({ length: 6 }, () => ({ kind: 'skill', skill: id }))), 'practice'); }
 function startTest() {
+  if (!writable()) return;
   const pool = skills.filter(sk => state.skills[sk.id] && state.skills[sk.id].m);
-  const picks = Array.from({ length: 15 }, (_, i) => pool[(i * 7 + Math.floor(Math.random() * pool.length)) % pool.length]);
+  // Distinct questions: shuffle, take at most 15, and only repeat if the pool is smaller.
+  const order = pool.slice();
+  for (let i = order.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [order[i], order[j]] = [order[j], order[i]]; }
+  const picks = Array.from({ length: 15 }, (_, i) => order[i % order.length]);
   begin(createSession(app, picks.map(sk => ({ kind: 'skill', skill: sk.id })), { test: true }), 'test');
 }
 function begin(s, mode) {
@@ -410,7 +469,7 @@ function progressHead(cur) {
   const frac = cur.total ? cur.index / cur.total : 0;
   return h('div', { class: 'qhead' },
     h('button', { class: 'btn ghost small', onclick: () => { voice.stop(); run.s.finish(); persist(); run = null; go('home'); } }, u(T.quit)),
-    bar(frac, 'thin'), h('span', { class: 'muted small' }, cur.total ? `${cur.index + 1}/${cur.total}` : ''));
+    bar(frac, 'thin', `${u(T.progress)}: ${cur.index + 1}/${cur.total}`), h('span', { class: 'muted small' }, cur.total ? `${cur.index + 1}/${cur.total}` : ''));
 }
 function lesson(cur) {
   const sk = cur.skill, ex = cur.example;
@@ -523,7 +582,7 @@ function question(cur) {
   const helpBtn = h('button', { class: 'btn ghost small', onclick: e => { if (run.s.askParent()) { persist(); e.currentTarget.disabled = true; toast(u(T.helpSent)); } } }, u(T.help));
   actions.append(voice.available() && h('button', { class: 'btn ghost small', onclick: () => voice.speak(q.say ? q.say : `${prompt} ${q.kind === 'mcq' ? q.options.map((o, i) => `${'ABCDE'[i]}. ${t(o.t)}.`).join(' ') : ''}`) }, u(T.listen)), run.mode !== 'test' && helpBtn, nextBtn);
   const card = h('section', { class: `card q s-${sk.strand}` },
-    h('div', { class: 'eyebrow' }, `${strandName(sk.strand)} · ${t(sk.title)}${cur.review ? ` · ${u(T.review)}` : ''}`),
+    h('div', { class: 'eyebrow' }, `${strandName(sk.strand)} · ${t(sk.title)}${cur.review ? ` · ${u(T.review)}` : ''}${cur.ahead ? ` · ${u(T.aheadWork)}` : ''}`),
     askBlock(q, m, seen), ctl.opts, ctl.row, fb, actions);
   mount(h('main', { class: 'wrap narrow' }, progressHead(cur), card));
   if (q.say && voice.available()) voice.speak(q.say);
@@ -608,14 +667,16 @@ function showRetry(cur, o, top, onDone = nextQuestion) {
 }
 
 function finish() {
+  const isTest = run.mode === 'test';
   const st = run.s.finish();
-  const rw = settleNow({ stats: st, completed: true }); persist();
+  const rw = isTest ? null : settleNow({ stats: st, completed: true });
+  if (!isTest) persist();
   const rows = [h('div', { class: 'eyebrow' }, u(T.done)),
     h('div', { class: 'big-stats' },
       h('div', {}, h('b', {}, String(st.asked)), h('small', {}, u(T.answered))),
       h('div', {}, h('b', {}, String(st.correct)), h('small', {}, u(T.rightCount))),
-      h('div', {}, h('b', {}, `+${st.stars + rw.gold + rw.bonus}`), h('small', {}, u(T.stars))))];
-  if (!isEmpty(rw)) rows.push(h('div', { class: 'rw-box' }, rewardLines(rw)));
+      h('div', {}, h('b', {}, `+${st.stars + (rw ? rw.gold + rw.bonus : 0)}`), h('small', {}, u(T.stars))))];
+  if (rw && !isEmpty(rw)) rows.push(h('div', { class: 'rw-box' }, rewardLines(rw)));
   if (st.mastered.length) rows.push(h('h2', {}, u(T.newMastered)), h('ul', {}, [...new Set(st.mastered)].map(id => h('li', {}, t(byId[id].title)))));
   if (run.mode === 'test' && run.results.length) {
     rows.push(h('h2', {}, u(T.testReview)), h('ol', { class: 'review-list' }, run.results.map(r => h('li', { class: r.ok ? 'ok' : 'no' },
@@ -625,7 +686,7 @@ function finish() {
   rows.push(h('button', { class: 'btn primary big', onclick: () => go('home') }, u(T.backHome)));
   run = null;
   mount(h('main', { class: 'wrap narrow' }, h('section', { class: 'card done' }, rows)));
-  if (!isEmpty(rw) || st.mastered.length) confetti(rw.levelUp ? 80 : 40);
+  if (rw && (!isEmpty(rw) || st.mastered.length)) confetti(rw.levelUp ? 80 : 40);
 }
 
 // ---------- skill map ----------
@@ -645,7 +706,7 @@ function viewMap() {
         h('button', { class: 'sk-btn', onclick: () => skillSheet(sk) },
           h('span', { class: 'sk-title' }, t(sk.title)),
           h('span', { class: `pill ${status}` }, u(T[status])),
-          bar(s ? s.p : 0, 'thin')));
+          bar(s ? s.p : 0, 'thin', `${t(sk.title)}: ${Math.round((s ? s.p : 0) * 100)}%`)));
     }))));
   mount(header(), h('main', { class: 'wrap' }, h('h1', { class: 'page-h' }, u(T.map)), tabs, groups), nav('map'));
 }
@@ -661,18 +722,11 @@ function skillSheet(sk) {
       h('div', { class: 'actions' },
         h('button', { class: 'btn ghost', 'aria-label': u(T.close), onclick: () => close() }, '✕'),
         ok && h('button', { class: 'btn primary', onclick: () => { close(); startSkill(sk.id); } }, u(T.practiseThis)))));
-  const opener = document.activeElement;
-  const close = () => { dlg.remove(); if (opener && opener.isConnected) opener.focus(); };
-  dlg.addEventListener('click', e => { if (e.target === dlg) close(); });
-  dlg.addEventListener('keydown', e => {
-    if (e.key === 'Escape') return close();
-    if (e.key !== 'Tab') return; // keep focus inside the dialog
-    const f = [...dlg.querySelectorAll('button, a[href]')], first = f[0], last = f[f.length - 1];
-    if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); } else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
-  });
+  let release = () => {};
+  const close = () => { release(); dlg.remove(); };
   document.querySelectorAll('.sheet').forEach(x => x.remove());
   document.body.append(dlg);
-  dlg.querySelector('.btn.primary, .btn').focus();
+  release = trapFocus(dlg, { onClose: close, initial: dlg.querySelector('.btn.primary, .btn') });
 }
 
 // ---------- parent area ----------
@@ -732,7 +786,7 @@ function viewParent() {
   const road = h('section', { class: 'card' }, h('div', { class: 'eyebrow' }, u(T.roadmap)), h('p', { class: 'muted small' }, u(T.roadmapNote)),
     h('div', { class: 'road' }, rm.rows.map(r => h('div', { class: 'road-row' + (r.current ? ' current' : '') },
       h('span', { class: 'road-y' }, r.label), h('span', { class: 'road-c' }, `${u(T.classN)} ${r.cls}`),
-      r.total ? bar(r.done / r.total) : h('span', { class: 'muted small' }, t(L('Content pack needed', 'सामग्री पैक चाहिए'))),
+      r.total ? bar(r.done / r.total, '', `${u(T.classN)} ${r.cls}: ${r.done}/${r.total}`) : h('span', { class: 'muted small' }, t(L('Content pack needed', 'सामग्री पैक चाहिए'))),
       h('span', { class: 'road-n' }, r.total ? `${r.done}/${r.total}` : '')))),
     h('p', { class: 'small' }, h('b', {}, `${u(T.pace)}: `), rm.perWeek > 0
       ? t(L(`${rm.perWeek.toFixed(1)} new skills a week. ${rm.left} skills of this class and below are left: about ${rm.weeksLeft} week(s) at this pace.`, `प्रति सप्ताह ${rm.perWeek.toFixed(1)} नए कौशल। इस कक्षा तक के ${rm.left} कौशल बाकी हैं: इस गति से लगभग ${rm.weeksLeft} सप्ताह।`))
@@ -758,7 +812,7 @@ function settingsCard() {
     h('label', { for: 's-daily' }, u(T.daily)),
     h('select', { id: 's-daily' }, [12, 18, 24, 30].map(n => h('option', { value: String(n), selected: p.dailyQ === n }, String(n)))),
     h('label', { for: 's-cls' }, u(T.classIn)),
-    h('select', { id: 's-cls' }, [3, 4, 5, 6, 7, 8, 9, 10, 11, 12].map(c => h('option', { value: String(c), selected: clsNow === c }, String(c)))),
+    h('select', { id: 's-cls' }, SUPPORTED_CLASSES.map(c => h('option', { value: String(c), selected: clsNow === c }, String(c)))),
     h('fieldset', {}, h('legend', {}, u(T.subjects)), STRANDS.map(s => h('label', { class: 'check' }, h('input', { type: 'checkbox', value: s, checked: !(p.off || []).includes(s) }), strandName(s)))),
     h('label', { class: 'check' + (purposeOn(state.consent, 'readaloud') ? '' : ' off') },
       h('input', { type: 'checkbox', id: 's-read', checked: !!p.autoRead, disabled: !purposeOn(state.consent, 'readaloud') }),
@@ -806,21 +860,42 @@ async function offerFile(name, text) {
 function backupCard() {
   const area = h('textarea', { id: 'b-text', rows: '3', 'aria-label': u(T.pasteB), placeholder: u(T.pasteB) });
   const file = h('input', { type: 'file', id: 'b-file', accept: '.json,application/json,text/plain' });
-  // Restoring replaces everything, so it takes two taps and keeps one undo copy.
-  let pending = null;
+  // Restoring replaces everything, so it takes two taps, shows what is inside, and keeps
+  // one undo copy. The checksum is verified before anything is touched.
+  let pending = null, pendingInfo = null;
+  const preview = h('div', { class: 'notice-line', role: 'status', hidden: true });
   const note = h('p', { class: 'warn', role: 'alert', hidden: true }, u(T.confirmRestore));
+  const showPreview = info => {
+    preview.hidden = false;
+    const n = Object.keys(info.state.skills || {}).length;
+    preview.replaceChildren(
+      h('p', {}, `${u(T.backupPreview)}: ${info.state.profile.name} · ${u(T.classN)} ${info.state.profile.cls} · ${n} ${u(T.skillsCount)}`),
+      ...info.warnings.map(w => h('p', { class: 'muted small' }, w === 'unsigned' ? u(T.backupUnsigned) : w)));
+  };
+  const fail = e => toast(/checksum/i.test(e.message) ? u(T.backupDamaged) : e.message, 6000);
   const goBtn = h('button', { class: 'btn', onclick: () => {
     const text = pending != null ? pending : area.value.trim();
     if (!text) return;
-    if (pending == null) { try { importText(text); } catch (e) { toast(e.message); return; } pending = text; note.hidden = false; goBtn.classList.add('danger'); return; }
-    try { const next = importText(text); keepUndo(storage); state = next; state.lock = { f: 0, until: 0 }; rebuildSkills(); persist(); toast(u(T.restored)); parentOpen = false; go('home'); } catch (e) { toast(e.message); }
+    if (pending == null) {
+      try { pendingInfo = parseImport(text); } catch (e) { return fail(e); }
+      pending = text; showPreview(pendingInfo); note.hidden = false; goBtn.classList.add('danger'); goBtn.focus(); return;
+    }
+    try {
+      const next = parseImport(text).state;
+      keepUndo(storage); state = next; state.lock = { f: 0, until: 0 };
+      rebuildSkills(); persist(); toast(u(T.restored)); parentOpen = false; go('home');
+    } catch (e) { fail(e); }
   } }, u(T.restoreB));
   file.addEventListener('change', async () => {
     const f = file.files[0]; if (!f) return;
     if (f.size > MAX_IMPORT_BYTES) { toast(u(T.tooBig)); file.value = ''; return; }
-    try { const text = await f.text(); importText(text); pending = text; note.hidden = false; goBtn.classList.add('danger'); goBtn.focus(); } catch (e) { toast(e.message); file.value = ''; }
+    try {
+      const text = await f.text();
+      pendingInfo = parseImport(text); pending = text; showPreview(pendingInfo);
+      note.hidden = false; goBtn.classList.add('danger'); goBtn.focus();
+    } catch (e) { fail(e); file.value = ''; }
   });
-  area.addEventListener('input', () => { pending = null; note.hidden = true; goBtn.classList.remove('danger'); });
+  area.addEventListener('input', () => { pending = null; pendingInfo = null; preview.hidden = true; note.hidden = true; goBtn.classList.remove('danger'); });
   const undo = readUndo(storage);
   const confirm = h('input', { id: 'b-reset', autocomplete: 'off', 'aria-label': u(T.resetConfirm), placeholder: 'ERASE' });
   return h('section', { class: 'card form' }, h('div', { class: 'eyebrow' }, u(T.backup)), h('p', { class: 'muted small' }, u(T.backupNote)),
@@ -828,7 +903,7 @@ function backupCard() {
       h('button', { class: 'btn primary', onclick: () => offerFile(`ks-learn-backup-${today()}.json`, exportText(state)) }, u(T.exportB)),
       h('button', { class: 'btn', onclick: async () => { const txt = exportText(state); try { await navigator.clipboard.writeText(txt); toast(u(T.copied)); } catch { area.value = txt; area.select(); } } }, u(T.copyB))),
     h('label', { for: 'b-file' }, u(T.importB)), file, area,
-    note, goBtn,
+    preview, note, goBtn,
     undo && undo.profile && h('button', { class: 'btn ghost', onclick: () => { const prev = readUndo(storage); if (!prev) return; keepUndo(storage); state = prev; rebuildSkills(); persist(); toast(u(T.undone)); parentOpen = false; go('home'); } }, u(T.undo)),
     h('details', {}, h('summary', {}, u(T.reset)), h('label', { for: 'b-reset' }, u(T.resetConfirm)), confirm,
       h('button', { class: 'btn danger', onclick: () => {
@@ -865,7 +940,7 @@ function restoreCard() {
   file.addEventListener('change', async () => {
     const f = file.files[0]; if (!f) return;
     if (f.size > MAX_IMPORT_BYTES) { toast(ui(T.tooBig, 'bi')); return; }
-    try { state = importText(await f.text()); state.lock = { f: 0, until: 0 }; rebuildSkills(); persist(); go('home'); } catch (e) { toast(e.message); }
+    try { state = parseImport(await f.text()).state; state.lock = { f: 0, until: 0 }; rebuildSkills(); persist(); go('home'); } catch (e) { toast(/checksum/i.test(e.message) ? ui(T.backupDamaged, 'bi') : e.message); }
   });
   return h('details', { class: 'card' }, h('summary', {}, ui(T.restore, 'bi')), h('label', { for: 'r-file' }, ui(T.importB, 'bi')), file);
 }
@@ -884,6 +959,7 @@ function render() {
     return viewSetup();
   }
   if (run) return; // never navigate away from a running session by hash
+  if (!lease.holds() && lease.peer()) { readOnly = true; return viewReadOnly(); }
   const r = (location.hash || '#home').slice(1);
   document.documentElement.lang = M() === 'hi' ? 'hi' : 'en';
   document.querySelectorAll('.sheet').forEach(x => x.remove());
@@ -929,12 +1005,31 @@ setInterval(() => {
   wellbeingUI.beat(childScreen);
   if (++beats % 15 === 0) persist();
 }, 1000);
-// Another tab changed the saved progress: take the newer copy instead of overwriting it later.
+// Lease heartbeat: keep this tab the writer, or notice (without touching the screen) that
+// another tab has taken over. A running session is never reset by a storage event.
+setInterval(() => {
+  if (!storage.ok) return;
+  if (lease.holds()) lease.renew();
+}, 5000);
 window.addEventListener('storage', e => {
-  if (e.key !== STORE_KEY || !storage.ok) return;
-  state = load(storage).state; rebuildSkills(); run = null; parentOpen = false;
-  toast(u(T.otherTab), 5000); render();
+  if (!storage.ok) return;
+  if (e.key === lease.key) {
+    const was = readOnly;
+    readOnly = !lease.holds();
+    if (readOnly && !was) { toast(u(T.tabTaken), 6000); if (!run && state.profile) render(); }
+    else if (!readOnly && was) { state = load(storage).state; rebuildSkills(); toast(u(T.tabActive)); if (!run) render(); }
+    return;
+  }
+  if (e.key !== STORE_KEY) return;
+  // Only a writer may refresh from disk, never mid-session, and never by discarding the
+  // parent area: that was the old two-tab bug.
+  if (!lease.holds() || run) return;
+  state = load(storage).state; rebuildSkills(); render();
 });
+// Closing without a session frees the lease immediately; a crashed tab frees it by TTL.
+window.addEventListener('pagehide', () => { if (!run) lease.release(); });
+window.addEventListener('pageshow', e => { if (e.persisted) { if (!lease.holds()) lease.acquire(); render(); } });
+window.addEventListener('focus', () => { if (state.profile && !run && !lease.holds() && !lease.peer()) { lease.acquire(); render(); } });
 // Last line of defence: never leave a child on a blank or frozen screen.
 let crashed = false;
 function crash(err) {
@@ -956,5 +1051,8 @@ document.addEventListener('keydown', e => {
   if (b && !b.disabled) b.click();
 });
 try { render(); } catch (e) { crash(e); }
+// A document upgraded from schema 2 is written under the current key once, after the first
+// screen exists, so a failed write cannot leave the child on a blank page.
+if (boot.migrated && state.profile) persist();
 /* global __PWA__ */
 if (__PWA__ && 'serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('sw.js').catch(() => {});

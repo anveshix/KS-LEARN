@@ -49,18 +49,29 @@ test('bilingual: Hindi term beside the English term, once', () => {
   assert.equal(tx(B('Heart', 'हृदय'), 'bi'), 'Heart (हृदय)');
 });
 
-test('mastery needs enough evidence, then schedules spaced reviews', () => {
+test('mastery needs enough evidence and a later day, then schedules spaced reviews', () => {
   const s = newSkillState(false);
   let ev = [];
   for (let i = 0; i < 3; i++) ev = update(s, true, 0.25, '2026-11-15', null, 5000);
   assert.equal(s.m, false, 'three answers are not enough');
-  for (let i = 0; i < 4 && !s.m; i++) ev = update(s, true, 0.25, '2026-11-15', null, 5000);
-  assert.ok(s.m); assert.ok(ev.includes('mastered'));
-  assert.equal(s.due, addDays('2026-11-15', P.gaps[0]));
-  ev = update(s, true, 0.25, s.due, null, 4000);
+  for (let i = 0; i < 4 && !ev.includes('nearly'); i++) ev = update(s, true, 0.25, '2026-11-15', null, 5000);
+  assert.ok(ev.includes('nearly'));
+  assert.equal(s.m, false, 'four answers in one sitting do not master a skill');
+  const day2 = addDays('2026-11-15', 1);
+  ev = update(s, true, 0.25, day2, null, 5000);
+  assert.ok(ev.includes('mastered')); assert.equal(s.m, true);
+  assert.equal(s.due, addDays(day2, P.gaps[0]));
+  const pBefore = s.p, dueBefore = s.due;
+  ev = update(s, true, 0.25, dueBefore, null, 4000);
   assert.ok(ev.includes('review_ok')); assert.equal(s.st, 1);
-  ev = update(s, false, 0.25, s.due, 'carry', 4000);
-  assert.ok(ev.includes('relearn')); assert.equal(s.m, false); assert.equal(s.msc.carry, 1);
+  const missDay = s.due;
+  ev = update(s, false, 0.25, missDay, 'carry', 4000);
+  assert.ok(ev.includes('relearn'));
+  assert.equal(s.m, true, 'one missed review is not a demotion');
+  assert.equal(s.due, addDays(missDay, 1), 'it comes back tomorrow');
+  assert.equal(s.relearn, missDay);
+  assert.ok(s.p > 0.5 && s.p < pBefore, 'the estimate moved, it was not erased');
+  assert.equal(s.msc.carry, 1);
 });
 
 test('three wrong answers in a row flags the skill and re-teaches it', () => {

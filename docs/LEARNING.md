@@ -63,24 +63,37 @@ numeric answer does not. The model is honest about that difference.
 
 ### Mastery and review
 
-A skill is mastered only when **all** of these hold:
+Mastery is a claim about **later recall**, so it cannot be earned inside one sitting.
+
+A skill becomes a *candidate* when all of these hold:
 
 1. `p ≥ 0.95`;
 2. enough graded evidence: 4 answers (2 for a foundation check);
-3. the last two graded answers were right;
-4. predicted recall today is at least 0.8 (using the classroom slip, so a shaky patch can
-   never make mastery permanently unreachable).
+3. the last two graded answers were right.
 
-Then it is scheduled for spaced review at 2, 5, 12, 30, 75 and 180 days. A miss at review
-returns it to learning (`p` capped at 0.5) and keeps the forgotten skill's prerequisite due.
-Early practice of a mastered skill never stretches its next review date.
+The candidate is recorded with a date (`cand`). It is mastered only when the child answers it
+correctly **on a later day** and predicted recall across that real gap is at least 0.8 (using
+the classroom slip, so a shaky patch can never make mastery permanently unreachable). Four
+same-day answers produce the `nearly` event and the line “answer it correctly tomorrow”, not
+a mastery badge.
+
+Once mastered, reviews are scheduled at 2, 5, 12, 30, 75 and 180 days. A missed review is
+information, not a verdict:
+
+- the estimate moves down through the normal BKT update (no artificial cap at 0.5);
+- the skill is marked as needing review and comes back **tomorrow**;
+- mastery is only withdrawn if repeated misses push `p` below 0.6.
+
+Early practice of a mastered skill never stretches its next review date. The assessment and
+test modes never touch any of this state: a test is a measurement, not practice.
 
 ### Forgetting
 
 `retention(p, days)` predicts the chance of a correct answer after a gap, using an exponential
-decay of 2% per day and the personal slip/guess. It is used for two decisions — ordering due
-reviews (most forgotten first) and the mastery gate — but it **never rewrites the stored
-estimate**. Time away is not treated as forgetting: only answers move `p`.
+decay of 2% per day and the personal slip/guess. It is used for two real decisions — ordering
+due reviews (most forgotten first) and the *delayed* mastery check across the gap since the
+candidate date — but it **never rewrites the stored estimate**. Time away is not treated as
+forgetting: only answers move `p`.
 
 ### Choosing what to practise
 
@@ -136,7 +149,7 @@ views. No ranking, no comparison with other children.
 | File | Responsibility |
 |---|---|
 | `src/core/bkt.js` | priors, log-odds update, transition, retention, ZPD priority, parameter fitting, log refit |
-| `src/core/mastery.js` | stored skill shape, mastery gate, review schedule, events |
+| `src/core/mastery.js` | stored skill shape, evidence gate, delayed mastery check, review schedule, events |
 | `src/core/scaffold.js` | ladder construction, fading, evidence weights |
 | `src/core/session.js` | graded answers, assisted practice, focus, logging |
 | `src/core/planner.js` | ZPD ordering, retention-ordered reviews |

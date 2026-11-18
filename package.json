@@ -1,6 +1,6 @@
 {
   "name": "ks-learn",
-  "version": "2.6.0",
+  "version": "2.7.0",
   "private": true,
   "type": "module",
   "description": "KS-LEARN: an offline-first personal mastery-learning app (Hindi/English), class 3 to 9",
@@ -9,13 +9,16 @@
     "test": "node --test tests/*.test.mjs",
     "audit:content": "node tools/audit.mjs 500",
     "verify": "node tools/verify-dist.mjs",
-    "check": "npm run audit:content && npm test && npm run build && npm run verify",
+    "check": "npm run audit:content && npm run gate:content && npm test && npm run build && npm run verify",
     "e2e": "node tools/e2e.mjs",
     "validate-pack": "node tools/validate-pack.mjs",
-    "brand": "node tools/make-assets.mjs && node tools/make-brand-page.mjs && node tools/make-poster.mjs"
+    "brand": "node tools/make-assets.mjs && node tools/make-brand-page.mjs && node tools/make-poster.mjs",
+    "gate:content": "node tools/content-gate.mjs"
   },
   "devDependencies": {
-    "esbuild": "0.25.12"
+    "axe-core": "^4.14.1",
+    "esbuild": "0.25.12",
+    "jsdom": "^31.0.1"
   },
   "engines": {
     "node": ">=20"
