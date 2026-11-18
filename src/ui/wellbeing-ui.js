@@ -6,6 +6,7 @@ import {
   PANCHAKOSHA, KOSHA_IDS, koshaById, BREATH_PHASES, BREATH_CYCLES, BREATH_TOTAL_MS,
   LIMIT_CHOICES, summary, ensureWellbeing, tick, setLimit, noteBreak, noteLayer, clock,
 } from '../core/wellbeing.js';
+import { trapFocus } from './dialog.js';
 
 const B = {
   title: L('The five layers', 'पाँच परतें'),
@@ -74,8 +75,10 @@ export function createWellbeingUI(ctx) {
   const { getState, h, mount, go, header, nav, persist, toast, today, u, t, settleNow, celebrate } = ctx;
   let refreshTimer = null, sheet = null, breath = null, lastAsk = 0, visitNoted = new Set(), panelLayer = 'prana';
 
+  let releaseSheet = () => {};
   function clearSheet() {
     if (breath) { try { breath(); } catch { /* already stopped */ } breath = null; }
+    releaseSheet(); releaseSheet = () => {};
     if (sheet) { sheet.remove(); sheet = null; }
   }
   function stop() {
@@ -277,8 +280,7 @@ export function createWellbeingUI(ctx) {
       h('p', { class: 'muted small' }, u(B.timerNote)));
     sheet = h('div', { class: 'sheet wb-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': u(B.pauseDue) }, body);
     document.body.append(sheet);
-    const first = body.querySelector('.btn.primary');
-    first && first.focus({ preventScroll: true });
+    releaseSheet = trapFocus(sheet, { onClose: () => close(), initial: body.querySelector('.btn.primary') });
   }
 
   function close() { clearSheet(); }
@@ -314,6 +316,7 @@ export function createWellbeingUI(ctx) {
         dots, h('div', { class: 'actions' }, stopBtn));
       sheet = h('div', { class: 'sheet wb-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': u(B.breatheTitle) }, card);
       document.body.append(sheet);
+      releaseSheet = trapFocus(sheet, { onClose: () => { close(); renderIfHere(); }, initial: card.querySelector('.btn') });
       startBreath(orb, phase, dots);
     } else {
       const steps = koshaById('anna').steps.map((s, i) => h('button', { class: 'wb-step', type: 'button', 'aria-pressed': 'false' },
@@ -339,6 +342,7 @@ export function createWellbeingUI(ctx) {
           h('button', { class: 'btn ghost', onclick: () => { close(); renderIfHere(); } }, u(B.stop))));
       sheet = h('div', { class: 'sheet wb-sheet', role: 'dialog', 'aria-modal': 'true', 'aria-label': u(B.moveTitle) }, card);
       document.body.append(sheet);
+      releaseSheet = trapFocus(sheet, { onClose: () => { close(); renderIfHere(); }, initial: steps[0] });
       goBtn.disabled = true;
     }
   }

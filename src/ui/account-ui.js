@@ -112,6 +112,8 @@ function passField(id, label, autocomplete, hint) {
     h('div', { class: 'pw-row' }, input, show), hint ? h('p', { class: 'muted small', id: `${id}-hint` }, s(hint)) : null) };
 }
 
+import { trapFocus } from './dialog.js';
+
 const errorNode = (id, cls = 'notice-line') => h('p', { class: cls, id, role: 'alert', hidden: true });
 const fail = (node, message) => { node.textContent = message; node.hidden = false; node.scrollIntoView({ block: 'nearest' }); };
 
@@ -140,9 +142,10 @@ function recoverySheet(code, onDone) {
     } }, s(C.finish)));
   const sheet = h('div', { class: 'sheet' }, body);
   sheet.addEventListener('click', e => { if (e.target === sheet) { /* closing without acknowledging would lose the code */ sheet.classList.add('shake'); setTimeout(() => sheet.classList.remove('shake'), 400); } });
-  sheet.addEventListener('keydown', e => { if (e.key === 'Escape') e.preventDefault(); });
   document.body.append(sheet);
-  document.getElementById('rec-done').focus();
+  // Escape is deliberately inert here ("backdrop: false" style): losing the only recovery code
+  // is worse than a keyboard trap. The buttons remain reachable and the dialog is labelled.
+  trapFocus(sheet, { onClose: () => {}, initial: document.getElementById('rec-done') });
   return sheet;
 }
 

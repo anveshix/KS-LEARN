@@ -147,6 +147,19 @@ export const T = {
   loginNeeded: L('Sign in with the guardian passphrase to continue.', 'जारी रखने के लिए अभिभावक पासफ़्रेज़ से साइन इन कीजिए।'),
   account: L('Guardian account', 'अभिभावक खाता'),
   enough: L('That is plenty for today. Rest your eyes and try the off-screen challenge.', 'आज के लिए इतना काफ़ी है। आँखों को आराम दीजिए और बिना-स्क्रीन चुनौती कीजिए।'),
+  progress: L('Progress', 'प्रगति'),
+  nearly: L('Strong enough for today. Answer it correctly tomorrow and it is yours.', 'आज के लिए काफ़ी मज़बूत। कल सही उत्तर दिया, तो यह तुम्हारा।'),
+  aheadWork: L('one class ahead', 'एक कक्षा आगे'),
+  contentGap: L('No more questions for this class yet', 'इस कक्षा के लिए अभी और प्रश्न नहीं'),
+  contentGapNote: L('This subject has no content at your class level yet. Nothing above your class is given without saying so. A parent can add a content pack.', 'इस विषय में तुम्हारी कक्षा के स्तर की सामग्री अभी नहीं है। तुम्हारी कक्षा से ऊपर की सामग्री बिना बताए नहीं दी जाती। कोई अभिभावक सामग्री पैक जोड़ सकते हैं।'),
+  tabReadOnly: L('KS-LEARN is open in another tab. This tab can read but not save.', 'KS-LEARN किसी दूसरे टैब में खुला है। यह टैब पढ़ सकता है, सहेज नहीं सकता।'),
+  tabTake: L('Use this tab instead', 'इसके बजाय यह टैब इस्तेमाल करें'),
+  tabTaken: L('Another tab took over. This one is now read-only, so nothing here is being saved.', 'दूसरे टैब ने काम संभाल लिया। अब यह टैब केवल पढ़ने के लिए है, यहाँ कुछ सहेजा नहीं जा रहा।'),
+  tabActive: L('This tab is active again.', 'यह टैब फिर सक्रिय है।'),
+  backupDamaged: L('This backup is damaged or was edited. Nothing was restored.', 'यह बैकअप खराब है या उसमें बदलाव हुआ है। कुछ भी वापस नहीं लाया गया।'),
+  backupPreview: L('This backup contains', 'इस बैकअप में है'),
+  skillsCount: L('skills', 'कौशल'),
+  backupUnsigned: L('This backup has no checksum (made by an older version). It will be upgraded when restored.', 'इस बैकअप में चेकसम नहीं है (पुराने संस्करण का)। वापस लाते समय यह अपग्रेड हो जाएगा।'),
 };
 
 // Off-screen challenges: applying the day's learning in the real world.

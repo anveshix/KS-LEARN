@@ -4,6 +4,9 @@ import { newSkillState } from './mastery.js';
 import { priority, retention, paramsOf } from './bkt.js';
 
 export const STRANDS = ['m', 'e', 'h', 's', 'l', 'c', 'g', 't'];
+// Classes this release can honestly teach: published minima are met and enforced by
+// tools/content-gate.mjs. Everything else is "content in progress", never a blank class.
+export const SUPPORTED_CLASSES = [4, 5, 6, 7];
 export const academicYear = d => (d.getMonth() >= 3 ? d.getFullYear() : d.getFullYear() - 1);
 export const classNow = (profile, date) => Math.min(12, profile.cls + Math.max(0, academicYear(date) - profile.ay0));
 
@@ -15,13 +18,20 @@ export function ensureState(skills, st, profile, date) {
 export const unlocked = (sk, st) => sk.pre.every(id => st[id] && st[id].m);
 
 // Unmastered skills the learner may work on now, easiest class first.
-// Nothing above the current class is offered until the current class is done;
-// after that there is no ceiling.
+// Strictly at or below the current class: an older child's syllabus is never served silently.
+// When that set is empty the caller must ask aheadFrontier() and label the work as ahead.
 export function frontier(skills, st, strand, cls) {
   const open = skills.filter(sk => sk.strand === strand && st[sk.id] && !st[sk.id].m && unlocked(sk, st));
-  const within = open.filter(sk => sk.grade <= cls);
-  const list = within.length ? within : open;
-  return list.slice().sort((a, b) => a.grade - b.grade || skills.indexOf(a) - skills.indexOf(b));
+  return open.filter(sk => sk.grade <= cls)
+    .sort((a, b) => a.grade - b.grade || skills.indexOf(a) - skills.indexOf(b));
+}
+
+// Explicit stretch content: only used when the current class has nothing left, and always
+// returned separately so the UI can say "this is class N+1 work".
+export function aheadFrontier(skills, st, strand, cls) {
+  const open = skills.filter(sk => sk.strand === strand && st[sk.id] && !st[sk.id].m && unlocked(sk, st));
+  return open.filter(sk => sk.grade > cls)
+    .sort((a, b) => a.grade - b.grade || skills.indexOf(a) - skills.indexOf(b));
 }
 // Within the same class, practise the skill whose estimate is furthest from secure first.
 // This is the zone of proximal development: a skill at p≈0.5 gains more from one question
@@ -52,7 +62,14 @@ const dayIndex = day => Math.floor(Date.UTC(...day.split('-').map((x, i) => (i =
 export function buildMission(skills, st, profile, date, day) {
   const cls = classNow(profile, date);
   const on = s => !(profile.off || []).includes(s);
-  const has = s => on(s) && frontier(skills, st, s, cls).length > 0;
+  const has = s => on(s) && (frontier(skills, st, s, cls).length > 0 || aheadFrontier(skills, st, s, cls).length > 0);
+  // Inside the class: a dynamic learn step. Nothing at this level: one named ahead skill,
+  // repeated, flagged so every screen can label it honestly.
+  const stepFor = s => {
+    if (frontier(skills, st, s, cls).length) return { kind: 'learn', strand: s };
+    const sk = aheadFrontier(skills, st, s, cls)[0];
+    return sk ? { kind: 'skill', skill: sk.id, ahead: true } : null;
+  };
   const total = profile.dailyQ || 18;
   const di = dayIndex(day);
   // Mixed revision: when nothing is new or due (a strong learner has finished the available skills),
@@ -75,7 +92,8 @@ export function buildMission(skills, st, profile, date, day) {
   const wsum = weights.reduce((a, b) => a + b, 0);
   picks.forEach((s, i) => {
     const n = i === picks.length - 1 ? left : Math.max(2, Math.round((total - nReview) * weights[i] / wsum));
-    for (let k = 0; k < Math.min(n, left); k++) plan.push({ kind: 'learn', strand: s });
+    const step = stepFor(s);
+    if (step) for (let k = 0; k < Math.min(n, left); k++) plan.push({ ...step });
     left -= Math.min(n, left);
   });
   return plan;
@@ -89,4 +107,12 @@ export function strandProgress(skills, st, strand, cls) {
     classTotal: upto.length, classMastered: upto.filter(sk => st[sk.id]?.m).length,
     ahead: all.filter(sk => sk.grade > cls && st[sk.id]?.m).length,
   };
+}
+
+// Which enabled strands have no content at or below the learner's class. Used by the home
+// screen to say "content in progress" instead of quietly jumping a class ahead.
+export function contentGaps(skills, profile, date) {
+  const cls = classNow(profile, date);
+  return STRANDS.filter(s => !(profile.off || []).includes(s))
+    .filter(s => !skills.some(sk => sk.strand === s && sk.grade <= cls));
 }

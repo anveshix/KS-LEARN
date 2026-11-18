@@ -84,7 +84,8 @@ a { color: var(--accent); }
 .row { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .row > div { min-width: 0; flex: 1 1 220px; }
 .tabs { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(12px + env(safe-area-inset-bottom, 0px)); width: min(440px, calc(100% - 24px)); display: flex; gap: 4px; background: var(--glass); -webkit-backdrop-filter: blur(18px) saturate(150%); backdrop-filter: blur(18px) saturate(150%); border: 1px solid var(--glass-line); box-shadow: var(--shadow); border-radius: 22px; padding: 6px; z-index: 5; }
-.tab { flex: 1; display: grid; justify-items: center; gap: 1px; line-height: 1.1; text-align: center; text-decoration: none; color: var(--muted); font-weight: 600; padding: 10px 6px; border-radius: 16px; font-size: .8rem; transition: background .2s, color .2s; }
+.tab { flex: 1; display: grid; justify-items: center; align-content: center; gap: 2px; line-height: 1.25; text-align: center; text-decoration: none; color: var(--muted); font-weight: 600; padding: 10px 6px 9px; border-radius: 16px; font-size: .8rem; transition: background .2s, color .2s; }
+.tab > span:last-child { line-height: 1.3; }
 .tab .ico { font-size: 1.25rem; }
 .tab.on { background: var(--grad); color: var(--accent-ink); }
 .qhead { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; }
@@ -249,6 +250,8 @@ body::before { content: ""; position: fixed; inset: 0; z-index: -1; pointer-even
   --hair: 1px solid var(--line);
 }
 body { -webkit-tap-highlight-color: transparent; }
+/* 320 px phones: Devanagari labels need the extra line height, not a smaller tap target. */
+@media (max-width: 360px) { .tab { font-size: .75rem; padding: 9px 4px 8px; letter-spacing: -.01em; } .tab .ico { font-size: 1.15rem; } }
 @media (prefers-reduced-transparency: reduce) { .card, .tabs, .pill-stat { backdrop-filter: none; -webkit-backdrop-filter: none; background: var(--surface); } }
 .program-chip { flex: none; align-self: center; padding: 5px 9px; border-radius: 99px; background: color-mix(in srgb, var(--sprout) 18%, transparent); color: var(--sprout-ink); border: 1px solid color-mix(in srgb, var(--sprout) 45%, transparent); font: 800 .62rem/1 var(--display); letter-spacing: .09em; text-transform: uppercase; white-space: nowrap; }
 @media (max-width: 430px) { .program-chip { display: none; } }
@@ -484,7 +487,7 @@ body { -webkit-tap-highlight-color: transparent; }
 /* Quests */
 .quest-offers { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
 .quest-offer { display: grid; gap: 6px; border-top: 4px solid var(--e); }
-.quest-offer h3 { font-size: 1.05rem; margin: 0; }
+.quest-offer h2, .quest-offer h3 { font-size: 1.05rem; margin: 0; }
 .quest-offer p { margin: 0; }
 .quest-offer .btn { align-self: end; margin-top: 6px; }
 .quest-offer.compact { padding: 12px; border-top-width: 3px; }
