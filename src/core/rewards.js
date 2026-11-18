@@ -30,6 +30,12 @@ export const BADGES = [
   { id: 'comeback', icon: '💪', name: L('Comeback Kid', 'हार नहीं मानी'), desc: L('Fix 5 mistakes with a hint', 'संकेत से 5 गलतियाँ सुधारो'), ok: c => c.recovered >= 5 },
   { id: 'stars100', icon: '⭐', name: L('100 Stars', '100 तारे'), desc: L('Collect 100 stars', '100 तारे जमा करो'), ok: c => c.stars >= 100 },
   { id: 'stars500', icon: '🌠', name: L('500 Stars', '500 तारे'), desc: L('Collect 500 stars', '500 तारे जमा करो'), ok: c => c.stars >= 500 },
+  { id: 'calm', icon: '🌬️', name: L('Calm Mind', 'शांत मन'), desc: L('Take your first breathing break', 'पहला साँस का विराम लो'), ok: c => c.calm >= 1 },
+  { id: 'calm7', icon: '🧘', name: L('Seven Breaths', 'सात साँसें'), desc: L('Take seven breathing breaks', 'सात बार साँस का विराम लो'), ok: c => c.calm >= 7 },
+  { id: 'story1', icon: '📖', name: L('Story Traveller', 'कहानी का सफ़र'), desc: L('Finish your first moral story', 'पहली नैतिक कहानी पूरी करो'), ok: c => c.stories >= 1 },
+  { id: 'story3', icon: '🪔', name: L('Three Lamps', 'तीन दीप'), desc: L('Finish three moral stories', 'तीन नैतिक कहानियाँ पूरी करो'), ok: c => c.stories >= 3 },
+  { id: 'quest1', icon: '🧭', name: L('Own Compass', 'अपनी दिशा'), desc: L('Choose and finish a daily quest', 'दैनिक लक्ष्य चुनकर पूरा करो'), ok: c => c.quests >= 1 },
+  { id: 'quest5', icon: '🗺️', name: L('Five Roads', 'पाँच राहें'), desc: L('Finish five daily quests', 'पाँच दैनिक लक्ष्य पूरे करो'), ok: c => c.quests >= 5 },
 ];
 export const BADGE_IDS = BADGES.map(b => b.id);
 
@@ -70,6 +76,9 @@ export function settle(state, { stats = null, completed = false, day, streakNow,
   const ctx = {
     stars: state.stars, streak: streakNow, sessions: state.log.length > 0 ? 1 : 0, perfect: !!(stats && stats.asked >= REWARD.perfectMin && stats.correct === stats.asked),
     recovered: rw.rec, mastered: Object.values(state.skills).filter(s => s.m).length, missions: Object.values(state.days).filter(d => d.done).length,
+    calm: state.wellbeing ? state.wellbeing.breaks || 0 : 0,
+    stories: state.stories ? Object.values(state.stories).filter(r => r && r.done).length : 0,
+    quests: state.quests ? state.quests.total || 0 : 0,
   };
   for (const b of BADGES) if (!rw.badges[b.id] && b.ok(ctx)) { rw.badges[b.id] = day; out.badges.push(b.id); }
   const li = levelIndex(state.stars);

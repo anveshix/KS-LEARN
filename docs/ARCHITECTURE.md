@@ -60,6 +60,26 @@ look-again questions and no mastery effect:
 
 Full design, accessibility and limits: [LABS.md](LABS.md).
 
+## Phase 5: wellbeing, quests and stories
+
+A five-petal Panchakosha wheel, a gentle active-use timer with a real 4-2-6 breathing break,
+three self-chosen daily quests and four branching moral stories. The design choices worth
+recording:
+
+- **CSS, not canvas, for the wheel.** Conic gradients, repeating radial rings and five
+  positioned buttons keep the screen sharp at any size and usable in the text-only fallback.
+- **One clock for the breath.** Animation, phase word, countdown and reward all read the same
+  elapsed time, so they cannot disagree. Reduced motion keeps the numbers and drops the scale.
+- **A nudge, never a lock.** The timer counts active seconds (gaps are rest), resets on a
+  real pause, and its limit is a guardian choice behind the PIN. No screen is ever blocked.
+- **Autonomy before progress.** The child picks one of three deterministic daily offers and
+  may switch only before progress, so a choice is never taken away. No streak, no loss.
+- **Stories are graphs in memory.** Validation proves reachability and acyclicity; the test
+  suite walks every path. The chosen path is never written to storage — only seen/finished/
+  reflected counts, so no behavioural profile of a child can be built from it.
+
+Full design and the exact stored fields: [WELLBEING.md](WELLBEING.md).
+
 ## Rules for later phases
 
 - A dependency is allowed only if it keeps the single-file, offline, CSP-hashed build under
