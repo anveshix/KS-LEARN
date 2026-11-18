@@ -8,6 +8,7 @@ and a device-local guardian account (no email, no cloud) gate the privacy action
 
 - Parental consent and DPDP: [`docs/DPDP.md`](docs/DPDP.md)
 - How the learning model works (BKT + scaffolding): [`docs/LEARNING.md`](docs/LEARNING.md)
+- Curiosity Labs (on-device 3D models): [`docs/LABS.md`](docs/LABS.md)
 - Stack decisions for this upgrade: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Brand board (open in a browser): [`brand/index.html`](brand/index.html)
 - Brand guide: [`docs/BRAND.md`](docs/BRAND.md)

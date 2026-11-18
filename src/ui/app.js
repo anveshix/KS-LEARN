@@ -21,6 +21,8 @@ import { guessRate } from '../core/mastery.js';
 import { refit } from '../core/bkt.js';
 import { createConsentFlow } from './consent-ui.js';
 import { createAccountFlow } from './account-ui.js';
+import { createLabsUI } from './labs-ui.js';
+import { labSummary } from '../core/labs.js';
 import { verifyConsent, purposeOn, setChildDetails } from '../core/consent.js';
 
 // ---------- environment ----------
@@ -60,6 +62,10 @@ function persist() {
 const M = () => (state.profile && state.profile.lang) || 'bi';
 const t = v => tx(v, M());
 const u = v => ui(v, M());
+const labsUI = createLabsUI({
+  getState: () => state, h, mount, go, header, nav, persist, toast, confetti, today, t, u,
+  currentClass: () => classNow(state.profile, now()), startSkill: id => startSkill(id),
+});
 
 const root = () => document.getElementById('app');
 function mount(...nodes) { const r = root(); r.replaceChildren(...nodes); window.scrollTo(0, 0); }
@@ -190,7 +196,7 @@ function bar(frac, cls = '') {
 }
 function nav(active) {
   const item = (id, label, ico) => h('a', { href: '#' + id, class: 'tab' + (active === id ? ' on' : ''), 'aria-current': active === id ? 'page' : false }, h('span', { class: 'ico', 'aria-hidden': 'true' }, ico), h('span', {}, u(label)));
-  return h('nav', { class: 'tabs', 'aria-label': 'Main' }, item('home', T.home, '🏠'), item('map', T.map, '🗺️'), item('parent', T.parent, '👨‍👩‍👧'));
+  return h('nav', { class: 'tabs', 'aria-label': 'Main' }, item('home', T.home, '🏠'), item('map', T.map, '🗺️'), item('labs', T.labs, '🧪'), item('parent', T.parent, '👨‍👩‍👧'));
 }
 function header() {
   const p = state.profile, cls = classNow(p, now());
@@ -323,6 +329,12 @@ function viewHome() {
         bar(pr.classTotal ? pr.classMastered / pr.classTotal : 0),
         h('small', {}, `${pr.classMastered}/${pr.classTotal} ${u(T.thisClass)}${pr.ahead ? ` · +${pr.ahead} ${u(T.ahead)}` : ''}`));
     })));
+  const labSum = labSummary(state);
+  const labsTile = h('section', { class: 'card tile b-half lab-tile' },
+    h('div', { class: 'eyebrow' }, `🧪 ${u(T.labs)}`),
+    h('span', { class: 'big-ico', 'aria-hidden': 'true' }, '🔭'),
+    h('div', { class: 'big-n' }, `${labSum.done}/${labSum.total}`),
+    h('button', { class: 'btn small', onclick: () => go('labs') }, u(L('Open the labs', 'लैब खोलो'))));
   const masteredN = skills.filter(sk => state.skills[sk.id] && state.skills[sk.id].m).length;
   const test = h('section', { class: 'card row b-half' }, h('div', {}, h('div', { class: 'eyebrow' }, u(T.test)), h('p', { class: 'muted small' }, u(masteredN >= 5 ? T.testNote : T.testNeeds))),
     h('button', { class: 'btn', disabled: masteredN < 5, onclick: () => startTest() }, u(T.start)));
@@ -334,7 +346,7 @@ function viewHome() {
     h('div', { class: 'hello-row' },
       h('h1', { class: 'hello' }, `${u(T.hello)}, ${p.name}`),
       h('span', { class: 'program-chip' }, ui(T.program, 'bi'))),
-    h('div', { class: 'bento' }, mission, levelTile(), tStreak, tStars, td.done ? off : null, strands, test, td.done ? null : off, badgeShelf())), nav('home'));
+    h('div', { class: 'bento' }, mission, levelTile(), tStreak, tStars, td.done ? off : null, strands, test, td.done ? null : off, labsTile, badgeShelf())), nav('home'));
   if (!isEmpty(pending)) celebrate(pending);
 }
 
@@ -674,7 +686,8 @@ function viewParent() {
       h('div', {}, h('b', {}, String(wk.n)), h('small', {}, u(T.questions))),
       h('div', {}, h('b', {}, wk.n ? `${Math.round(wk.acc * 100)}%` : '–'), h('small', {}, u(T.accuracy))),
       h('div', {}, h('b', {}, wk.n ? `${wk.avgSec.toFixed(0)}s` : '–'), h('small', {}, u(T.avgTime)))),
-    h('p', { class: 'muted small' }, u(T.talk)));
+    h('p', { class: 'muted small' }, u(T.talk)),
+    h('p', { class: 'muted small' }, `${labSummary(state).done}/${labSummary(state).total} ${u(L('curiosity labs explored on this device', 'जिज्ञासा लैब इसी डिवाइस पर देखी गईं'))}`));
   // The same BKT estimate the planner uses, shown without grades or rankings.
   const lm = learningModel(skills, state.skills);
   const model = h('section', { class: 'card' }, h('div', { class: 'eyebrow' }, u(L('How the learning model sees it', 'सीखने का मॉडल क्या देखता है'))),
@@ -835,6 +848,7 @@ function restoreCard() {
 function go(route) { if (location.hash !== '#' + route) location.hash = route; else render(); }
 function render() {
   voice.stop();
+  labsUI.stopLab();
   if (!state.profile) {
     // First run, in order: notice and consent, guardian account, child profile. A reload
     // between steps resumes at the first unfinished step instead of repeating a finished one.
@@ -862,6 +876,8 @@ function render() {
   if (r === 'consent') return flow.renew(consent);
   if (r === 'login') return accountFlow.login();
   if (r === 'map') return viewMap();
+  if (r === 'labs') return labsUI.viewLabs();
+  if (r.startsWith('labs/')) return labsUI.viewLab(r.slice(5));
   if (r === 'parent') return viewParent();
   return viewHome();
 }

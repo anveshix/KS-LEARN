@@ -25,7 +25,7 @@ would delete promise 1 or 3. So the work is done in the existing vanilla module 
 | **Tailwind** | Design tokens instead: one `:root` scale for colour, spacing, radius, elevation and motion in `src/ui/style.css` | Tailwind is a compile-time tool, not a runtime capability. The bento grid, glass surfaces, dark mode, reduced-motion and reduced-transparency support are all delivered as tokens and small utilities. No build dependency, no purge step, identical result. |
 | **Glassmorphism / bento** | Implemented (`--glass`, `backdrop-filter`, `.bento`, `.b-*`, responsive 4/2/1 columns) | Matches the brief and stays legible at 320 px and in dark mode. |
 | **Framer Motion** | CSS keyframes with a shared `--ease`, plus `prefers-reduced-motion` opt-out | The dopamine micro-animations (star pop, confetti, rise, pulse) are already CSS. A React animation runtime would add ~40 KB and a renderer for no visual gain. |
-| **React / React Three Fiber** | Not yet; Phase 4 | R3F needs React plus three.js (~600 KB minified), which alone exceeds the whole size budget. Phase 4 sandboxes will use a small hand-written WebGL/canvas renderer inside the same single file. If a fuller 3D experience is wanted, it ships as a separately hosted, lazily loaded sandbox — a deliberate, documented change to promise 1. |
+| **React / React Three Fiber** | Implemented as a purpose-built renderer in Phase 4 (`src/ui/gl.js`) | R3F needs React plus three.js (~600 KB minified), which alone would pass the 900 KB gate before any content. The four Curiosity Labs therefore use a small WebGL renderer (plus a software canvas fallback) inside the same single file, adding ~52 KB. Scene graph, camera, meshes, points and fallback are documented in [LABS.md](LABS.md). |
 | **transformers.js (voice)** | Phase 3, with an honest split | The library runs on WASM/WebGPU, but model weights are tens of megabytes and would have to be downloaded, defeating offline-first. Phase 3 therefore: (a) uses the browser's own speech engine where it is on-device, and (b) offers a downloadable voice pack for a separate build so transformers.js can run with **zero network at runtime** and no telemetry. Audio never leaves the device in either path. |
 | **Registration / login** | Device-local guardian account (PBKDF2 via WebCrypto + JS fallback), recovery code, 15-minute guardian session | A server-side email/password flow would break offline-first and create a children's database to protect, breach-notify and delete. The brief's privacy intent is met with a credential that never leaves the device; no OAuth, no email, no SMS. |
 | **DPDP consent** | Fully implemented now (`src/core/consent.js`, `src/ui/consent-ui.js`) | See [DPDP.md](DPDP.md): purpose-by-purpose notice, guardian ceremony or issuer-signed token, digest-checked record, 12-month re-consent, withdrawal, erasure, grievance route. |
@@ -45,6 +45,20 @@ BKT runs in plain JavaScript, per skill, entirely on the device:
 The answer log now carries the evidence weight, the ladder rung and the estimate each answer
 was given at, which makes the model auditable and lets `refit()` rebuild adaptation from the
 log after a restore. Full formulas, bounds and UI behaviour: [LEARNING.md](LEARNING.md).
+
+## Phase 4: Curiosity Labs
+
+Four on-device models (shapes, water cycle, day/night, plant parts), each with three
+look-again questions and no mastery effect:
+
+- procedural meshes and a Lambert shader, no textures, no assets, no network;
+- orbit camera by drag, arrow keys and wheel; reduced-motion respected;
+- a software canvas renderer when WebGL is unavailable, and a usable text path when neither
+  exists;
+- buffers, shaders and the animation loop released on route change;
+- only local progress (opened, finished, tries) is stored; no telemetry, no camera.
+
+Full design, accessibility and limits: [LABS.md](LABS.md).
 
 ## Rules for later phases
 

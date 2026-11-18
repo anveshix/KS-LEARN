@@ -38,7 +38,7 @@ export const T = {
   testNote: L('15 mixed questions from skills you have mastered. Answers are shown at the end.', 'सीखे हुए कौशलों से 15 मिश्रित प्रश्न। उत्तर अंत में दिखेंगे।'),
   testNeeds: L('Master at least 5 skills to unlock the weekly test.', 'साप्ताहिक परीक्षा के लिए कम से कम 5 कौशल सीखिए।'),
   offscreen: L('Off-screen challenge', 'बिना-स्क्रीन चुनौती'),
-  home: L('Home', 'मुख्य'), map: L('Skill map', 'कौशल नक्शा'), parent: L('Parent', 'अभिभावक'),
+  home: L('Home', 'मुख्य'), map: L('Skill map', 'कौशल नक्शा'), labs: L('Labs', 'लैब'), parent: L('Parent', 'अभिभावक'),
   thisClass: L('this class', 'इस कक्षा में'),
   ahead: L('ahead', 'आगे के'),
   newSkill: L('New skill', 'नया कौशल'),
