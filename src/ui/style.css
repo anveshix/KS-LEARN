@@ -356,3 +356,42 @@ body { -webkit-tap-highlight-color: transparent; }
 .shake { animation: shake .4s var(--ease); }
 @keyframes shake { 25% { transform: translateX(-6px); } 75% { transform: translateX(6px); } }
 @media (prefers-reduced-motion: reduce) { .shake { animation: none; } }
+
+/* ---------- Curiosity Labs (Phase 4) ---------- */
+.labs-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.lab-card { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 14px; align-items: center; }
+.lab-card.done { border-top: 4px solid var(--good); }
+.lab-ico { width: 54px; height: 54px; display: grid; place-items: center; font-size: 1.9rem; background: var(--bg); border-radius: 16px; }
+.lab-body h2 { font-size: 1.12rem; margin: .1em 0 .15em; }
+.lab-card .btn { white-space: nowrap; }
+.lab-tile .big-ico { font-size: 1.6rem; }
+.lab-tile .btn { margin-top: 8px; }
+.lab-stage { position: relative; border-radius: var(--r); overflow: hidden; border: 1px solid var(--glass-line); box-shadow: var(--shadow); background: linear-gradient(180deg, #dce8ff 0%, #eef6ff 55%, #f7fbff 100%); }
+.lab-canvas { display: block; width: 100%; height: auto; touch-action: none; cursor: grab; }
+.lab-canvas:active { cursor: grabbing; }
+.lab-canvas:focus-visible { outline: 3px solid var(--accent); outline-offset: -3px; }
+.lab-badge { position: absolute; top: 10px; left: 10px; padding: 4px 9px; border-radius: 12px; font-size: 1.35rem; background: rgb(255 255 255 / .62); -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); pointer-events: none; }
+.lab-stage.no3d { background: linear-gradient(180deg, #f4f7ff, #eef2fa); }
+.lab-stage.no3d .lab-canvas { display: none; }
+.lab-fallback { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--warn-bg); }
+.lab-notice { background: var(--bg); border-left: 4px solid var(--accent); padding: 10px 12px; border-radius: 0 10px 10px 0; }
+.lab-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.lab-controls .btn[aria-pressed="true"] { box-shadow: 0 4px 14px rgb(43 85 230 / .25); }
+.lab-range { display: flex; align-items: center; gap: 14px; width: 100%; }
+.lab-range input[type="range"] { flex: 1; min-height: 36px; accent-color: var(--accent); }
+.lab-out { min-width: 68px; text-align: right; font-weight: 700; font-variant-numeric: tabular-nums; }
+.lab-nudge { margin: 10px 0 0; }
+.lab-steps .options { margin-top: 10px; }
+.lab-steps .actions { margin-top: 12px; }
+@media (max-width: 640px) {
+  .labs-grid { grid-template-columns: 1fr; }
+  .lab-card { grid-template-columns: auto minmax(0, 1fr); }
+  .lab-card .btn { grid-column: 1 / -1; width: 100%; }
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .lab-stage { background: linear-gradient(180deg, #16233d 0%, #101a2c 60%, #0e1626 100%); }
+  :root:not([data-theme="light"]) .lab-badge { background: rgb(15 22 35 / .66); }
+  :root:not([data-theme="light"]) .lab-stage.no3d { background: linear-gradient(180deg, #141c2a, #101722); }
+}
+:root[data-theme="dark"] .lab-stage { background: linear-gradient(180deg, #16233d 0%, #101a2c 60%, #0e1626 100%); }
+:root[data-theme="dark"] .lab-badge { background: rgb(15 22 35 / .66); }

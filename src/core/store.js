@@ -6,12 +6,13 @@
 import { BADGE_IDS, LEVELS, freshRw } from './rewards.js';
 import { sanitizeConsent } from './consent.js';
 import { sanitizeAccount } from './account.js';
+import { LAB_ID, labById } from './labs.js';
 export const STORE_KEY = 'kslearn.v2';
 export const VERSION = 2;
 export const MAX_IMPORT_BYTES = 3 * 1024 * 1024;
 const LIMITS = { log: 6000, days: 4000, asks: 60, packs: 20, skills: 3000 };
 
-export const freshState = () => ({ v: VERSION, profile: null, consent: null, account: null, skills: {}, log: [], days: {}, stars: 0, rw: freshRw(0), asks: [], packs: [], lock: { f: 0, until: 0 } });
+export const freshState = () => ({ v: VERSION, profile: null, consent: null, account: null, skills: {}, log: [], days: {}, stars: 0, rw: freshRw(0), asks: [], packs: [], labs: {}, lock: { f: 0, until: 0 } });
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/, SKILL_ID = /^[a-z]\.[a-z0-9_]{1,40}$/, WORD = /^[a-z0-9_]{1,40}$/;
 const STRANDS = ['m', 'e', 'h', 's', 'l', 'c', 'g', 't'], LANGS = ['bi', 'hi', 'en'];
@@ -95,6 +96,16 @@ export function sanitize(raw) {
   if (Array.isArray(raw.asks)) for (const a of raw.asks.slice(-LIMITS.asks)) if (obj(a) && date(a.d) && SKILL_ID.test(a.s)) st.asks.push({ d: a.d, s: a.s, q: str(a.q, 400), done: a.done === true });
   // Packs are only shape-checked here; the app re-validates each one against the skill graph before use.
   if (Array.isArray(raw.packs)) st.packs = raw.packs.filter(p => obj(p) && typeof p.id === 'string' && Array.isArray(p.skills)).slice(0, LIMITS.packs);
+  // Curiosity Labs progress: which models were opened and finished, and how many tries.
+  if (obj(raw.labs)) for (const id of Object.keys(raw.labs).slice(0, 40)) {
+    if (!LAB_ID.test(id) || !labById(id)) continue;
+    const v = raw.labs[id]; if (!obj(v)) continue;
+    const rec = { tries: int(v.tries, 0, 999, 0) };
+    const seen = date(v.seen), done = date(v.done);
+    if (seen) rec.seen = seen;
+    if (done) rec.done = done;
+    st.labs[id] = rec;
+  }
   if (obj(raw.lock)) st.lock = { f: int(raw.lock.f, 0, 1000, 0), until: int(raw.lock.until, 0, 8.64e15, 0) };
   return st;
 }

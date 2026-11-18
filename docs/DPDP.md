@@ -20,6 +20,7 @@ fails if the bundle gains a `fetch`, a socket or an external resource
 | Consent record: guardian name, relation, child's age and age band, purposes, verification method, digest, audit trail | Prove consent was given and keep it checkable | legal basis for all of the above | Until erased; re-checked every 12 months | Nobody, unless the guardian exports the receipt |
 | Guardian account: display name, PBKDF2/SHA-256 passphrase hashes, recovery-code hash, login times | Only the guardian can change privacy settings or erase data; the passphrase is never stored | `account` | Until erased; removed with the learning data | Nobody |
 | Voice | The device's own text-to-speech reads a question aloud | `readaloud` | Not stored at all | Nobody |
+| Curiosity Labs: which model was opened or finished, the day, and a try count | The child can return to a model and a parent can see it was explored | `memory` | Until erased | Nobody |
 
 The learning model itself (BKT estimates and personal slip/learn rates) is arithmetic on
 those local records. It is not a separate dataset, is never transmitted, and is deleted with
