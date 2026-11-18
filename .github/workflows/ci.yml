@@ -1,0 +1,59 @@
+name: Check
+
+# Runs on every pull request and on every branch push that is not main.
+# Catches: content-policy violations, unit test failures, a build that no longer builds,
+# a dist/ that was not rebuilt from source, and dist policy violations.
+
+on:
+  pull_request:
+  push:
+    branches-ignore: ["main"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: "check-${{ github.ref }}"
+  cancel-in-progress: true
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install
+        run: npm ci
+
+      - name: Content audit, tests, build, dist policy
+        run: npm run check
+
+      # The committed dist/ is what a user opens offline; it must match the source.
+      - name: Committed dist is up to date
+        run: |
+          if [ -n "$(git status --porcelain -- dist)" ]; then
+            echo "::error::dist/ is stale. Run 'npm run build' and commit the result."
+            git status --porcelain -- dist
+            git diff --stat -- dist
+            exit 1
+          fi
+
+      - name: No stale root build
+        run: |
+          size=$(wc -c < index.html)
+          if [ "$size" -gt 4096 ]; then
+            echo "::error::Root index.html is ${size} bytes; it must be a small redirect to dist/pwa/."
+            exit 1
+          fi
+          if ! grep -q "dist/pwa/" index.html; then
+            echo "::error::Root index.html does not point at dist/pwa/."
+            exit 1
+          fi

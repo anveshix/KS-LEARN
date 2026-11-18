@@ -13,4 +13,6 @@ and a device-local guardian account (no email, no cloud) gate the privacy action
 - Stack decisions for this upgrade: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
 - Brand board (open in a browser): [`brand/index.html`](brand/index.html)
 - Brand guide: [`docs/BRAND.md`](docs/BRAND.md)
+- Independent audit (engineering, pedagogy, NEP 2020): [`docs/AUDIT-2026-11.md`](docs/AUDIT-2026-11.md)
+- AI-era coach design: [`docs/COACH.md`](docs/COACH.md)
 - Rebuild the logo, icons, sharing card and poster: `npm run brand`
