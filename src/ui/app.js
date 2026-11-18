@@ -22,6 +22,9 @@ import { refit } from '../core/bkt.js';
 import { createConsentFlow } from './consent-ui.js';
 import { createAccountFlow } from './account-ui.js';
 import { createLabsUI } from './labs-ui.js';
+import { createWellbeingUI } from './wellbeing-ui.js';
+import { createQuestsUI } from './quests-ui.js';
+import { createStoriesUI } from './stories-ui.js';
 import { labSummary } from '../core/labs.js';
 import { verifyConsent, purposeOn, setChildDetails } from '../core/consent.js';
 
@@ -67,6 +70,14 @@ const labsUI = createLabsUI({
   currentClass: () => classNow(state.profile, now()), startSkill: id => startSkill(id),
 });
 
+const uiCtx = () => ({
+  getState: () => state, h, mount, go, header, nav, persist, toast, confetti, today, t, u,
+  currentClass: () => classNow(state.profile, now()), startSkill: id => startSkill(id),
+  settleNow: extra => settleNow(extra), celebrate: r => celebrate(r),
+});
+const wellbeingUI = createWellbeingUI(uiCtx());
+const questsUI = createQuestsUI(uiCtx());
+const storiesUI = createStoriesUI(uiCtx());
 const root = () => document.getElementById('app');
 function mount(...nodes) { const r = root(); r.replaceChildren(...nodes); window.scrollTo(0, 0); }
 function toast(msg, ms = 2600) {
@@ -196,7 +207,7 @@ function bar(frac, cls = '') {
 }
 function nav(active) {
   const item = (id, label, ico) => h('a', { href: '#' + id, class: 'tab' + (active === id ? ' on' : ''), 'aria-current': active === id ? 'page' : false }, h('span', { class: 'ico', 'aria-hidden': 'true' }, ico), h('span', {}, u(label)));
-  return h('nav', { class: 'tabs', 'aria-label': 'Main' }, item('home', T.home, '🏠'), item('map', T.map, '🗺️'), item('labs', T.labs, '🧪'), item('parent', T.parent, '👨‍👩‍👧'));
+  return h('nav', { class: 'tabs', 'aria-label': 'Main' }, item('home', T.home, '🏠'), item('map', T.map, '🗺️'), item('labs', T.labs, '🧪'), item('grow', T.grow, '🌱'), item('parent', T.parent, '👨‍👩‍👧'));
 }
 function header() {
   const p = state.profile, cls = classNow(p, now());
@@ -329,6 +340,9 @@ function viewHome() {
         bar(pr.classTotal ? pr.classMastered / pr.classTotal : 0),
         h('small', {}, `${pr.classMastered}/${pr.classTotal} ${u(T.thisClass)}${pr.ahead ? ` · +${pr.ahead} ${u(T.ahead)}` : ''}`));
     })));
+  const questTile = questsUI.homeTile();
+  const calmTile = wellbeingUI.homeTile();
+  const storyTile = storiesUI.homeTile();
   const labSum = labSummary(state);
   const labsTile = h('section', { class: 'card tile b-half lab-tile' },
     h('div', { class: 'eyebrow' }, `🧪 ${u(T.labs)}`),
@@ -346,8 +360,20 @@ function viewHome() {
     h('div', { class: 'hello-row' },
       h('h1', { class: 'hello' }, `${u(T.hello)}, ${p.name}`),
       h('span', { class: 'program-chip' }, ui(T.program, 'bi'))),
-    h('div', { class: 'bento' }, mission, levelTile(), tStreak, tStars, td.done ? off : null, strands, test, td.done ? null : off, labsTile, badgeShelf())), nav('home'));
+    h('div', { class: 'bento' }, mission, levelTile(), tStreak, tStars, td.done ? off : null, strands, test, td.done ? null : off, labsTile, questTile, calmTile, storyTile, badgeShelf())), nav('home'));
   if (!isEmpty(pending)) celebrate(pending);
+}
+
+// ---------- grow hub ----------
+function viewGrow() {
+  mount(header(), h('main', { class: 'wrap' },
+    h('h1', { class: 'page-h' }, `🌱 ${u(T.grow)}`),
+    h('p', { class: 'muted' }, u(T.growIntro)),
+    h('div', { class: 'grow-grid' }, wellbeingUI.growCard(), questsUI.growCard(), storiesUI.growCard()),
+    h('section', { class: 'card grow-note' },
+      h('div', { class: 'eyebrow' }, `🪷 ${u(T.growWhyTitle)}`),
+      h('p', {}, u(T.growWhy)),
+      h('p', { class: 'muted small' }, u(T.growPrivacy)))), nav('grow'));
 }
 
 // ---------- sessions ----------
@@ -721,7 +747,7 @@ function viewParent() {
   const askCard = h('section', { class: 'card' }, h('div', { class: 'eyebrow' }, u(T.asks)),
     asks.length ? h('ul', { class: 'asks' }, asks.map(a => h('li', {}, h('span', {}, `${a.d} · ${byId[a.s] ? t(byId[a.s].title) : a.s}: ${a.q}`),
       h('button', { class: 'btn small', onclick: () => { a.done = true; persist(); viewParent(); } }, u(T.resolved))))) : h('p', { class: 'muted' }, u(T.noAsks)));
-  mount(header(), h('main', { class: 'wrap' }, h('h1', { class: 'page-h' }, u(T.parent)), accountFlow.card(), flow.card(), week, model, helpCard, askCard, mist, road, settingsCard(), pinCard(), packsCard(), backupCard(),
+  mount(header(), h('main', { class: 'wrap' }, h('h1', { class: 'page-h' }, u(T.parent)), accountFlow.card(), flow.card(), wellbeingUI.parentCard(), week, model, helpCard, askCard, mist, road, settingsCard(), pinCard(), packsCard(), backupCard(),
     h('button', { class: 'btn ghost', onclick: () => { parentOpen = false; go('home'); } }, u(T.lockParent))), nav('parent'));
 }
 function settingsCard() {
@@ -849,6 +875,7 @@ function go(route) { if (location.hash !== '#' + route) location.hash = route; e
 function render() {
   voice.stop();
   labsUI.stopLab();
+  wellbeingUI.stop();
   if (!state.profile) {
     // First run, in order: notice and consent, guardian account, child profile. A reload
     // between steps resumes at the first unfinished step instead of repeating a finished one.
@@ -878,6 +905,11 @@ function render() {
   if (r === 'map') return viewMap();
   if (r === 'labs') return labsUI.viewLabs();
   if (r.startsWith('labs/')) return labsUI.viewLab(r.slice(5));
+  if (r === 'grow') return viewGrow();
+  if (r === 'wellbeing') return wellbeingUI.viewWellbeing();
+  if (r === 'quests') return questsUI.viewQuests();
+  if (r === 'stories') return storiesUI.viewStories();
+  if (r.startsWith('stories/')) return storiesUI.viewStory(r.slice(8));
   if (r === 'parent') return viewParent();
   return viewHome();
 }
@@ -886,6 +918,17 @@ window.addEventListener('hashchange', () => { if (run) { run.s.finish(); persist
 setInterval(() => { if (parentOpen && Date.now() - parentSeen > PARENT_IDLE_MS) { parentOpen = false; endGuardianSession(); if (!run && state.profile) render(); } }, 30000);
 document.addEventListener('pointerdown', () => { if (parentOpen) parentSeen = Date.now(); }, true);
 document.addEventListener('keydown', () => { if (parentOpen) parentSeen = Date.now(); }, true);
+// One slow heartbeat for the screen-time rhythm. It counts only child screens, only while
+// the tab is visible, and never while the parent area is open. Persisting every 15 seconds
+// keeps the counter across a reload without writing to storage every second.
+let beats = 0;
+setInterval(() => {
+  if (!state.profile) return;
+  const r = (location.hash || '#home').slice(1);
+  const childScreen = r !== 'parent' && r !== 'login' && r !== 'consent';
+  wellbeingUI.beat(childScreen);
+  if (++beats % 15 === 0) persist();
+}, 1000);
 // Another tab changed the saved progress: take the newer copy instead of overwriting it later.
 window.addEventListener('storage', e => {
   if (e.key !== STORE_KEY || !storage.ok) return;

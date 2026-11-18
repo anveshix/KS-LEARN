@@ -21,6 +21,9 @@ fails if the bundle gains a `fetch`, a socket or an external resource
 | Guardian account: display name, PBKDF2/SHA-256 passphrase hashes, recovery-code hash, login times | Only the guardian can change privacy settings or erase data; the passphrase is never stored | `account` | Until erased; removed with the learning data | Nobody |
 | Voice | The device's own text-to-speech reads a question aloud | `readaloud` | Not stored at all | Nobody |
 | Curiosity Labs: which model was opened or finished, the day, and a try count | The child can return to a model and a parent can see it was explored | `memory` | Until erased | Nobody |
+| Wellbeing rhythm: active seconds today, the guardian's pause limit, pause counts, day of the last pause, and counts of moments with each of the five layers | Show a gentle pause bar and let a parent set the rhythm; no activity names or wall-clock surveillance | `memory` | Until erased | Nobody |
+| Daily quest: the day, the chosen quest id, whether it was claimed, and the lifetime number of claimed quests | Keep a self-chosen goal and pay its stars once | `memory` | Until erased | Nobody |
+| Story progress: which story was seen or finished, the day, and how many reflections were completed | Let the child revisit a story and a parent see that it was read | `memory` | Until erased | Nobody |
 
 The learning model itself (BKT estimates and personal slip/learn rates) is arithmetic on
 those local records. It is not a separate dataset, is never transmitted, and is deleted with
@@ -34,6 +37,12 @@ after the answer is graded.
 Deliberate data minimisation: no email, no phone number, no exact date of birth (only whole
 years), no Aadhaar, no address, no school record number, no photographs. The guardian's name
 is stored only because a consent record without a signatory is not a record.
+
+The Phase 5 moral stories are the clearest case for this rule. The app keeps **that** a story
+was finished and reflected on, never **which** option the child chose, which feeling they
+named, or what they said in a reflection. Those are the most sensitive things a child could
+produce in this app, and they never leave the screen. A restore or backup cannot put them back:
+`sanitize()` rebuilds each story record from a whitelist of `seen`, `done` and `reflections`.
 
 ## 2. Notice (Sec 6(3))
 

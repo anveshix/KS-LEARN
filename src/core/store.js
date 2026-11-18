@@ -7,12 +7,15 @@ import { BADGE_IDS, LEVELS, freshRw } from './rewards.js';
 import { sanitizeConsent } from './consent.js';
 import { sanitizeAccount } from './account.js';
 import { LAB_ID, labById } from './labs.js';
+import { freshWellbeing, dayKey, LIMIT_CHOICES, KOSHA_IDS, MAX_ACTIVE_MS, DEFAULT_LIMIT_MIN } from './wellbeing.js';
+import { QUEST_IDS, freshQuests } from './quests.js';
+import { STORY_ID, storyById } from './stories.js';
 export const STORE_KEY = 'kslearn.v2';
 export const VERSION = 2;
 export const MAX_IMPORT_BYTES = 3 * 1024 * 1024;
 const LIMITS = { log: 6000, days: 4000, asks: 60, packs: 20, skills: 3000 };
 
-export const freshState = () => ({ v: VERSION, profile: null, consent: null, account: null, skills: {}, log: [], days: {}, stars: 0, rw: freshRw(0), asks: [], packs: [], labs: {}, lock: { f: 0, until: 0 } });
+export const freshState = () => ({ v: VERSION, profile: null, consent: null, account: null, skills: {}, log: [], days: {}, stars: 0, rw: freshRw(0), asks: [], packs: [], labs: {}, wellbeing: freshWellbeing(dayKey()), quests: freshQuests(dayKey()), stories: {}, lock: { f: 0, until: 0 } });
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/, SKILL_ID = /^[a-z]\.[a-z0-9_]{1,40}$/, WORD = /^[a-z0-9_]{1,40}$/;
 const STRANDS = ['m', 'e', 'h', 's', 'l', 'c', 'g', 't'], LANGS = ['bi', 'hi', 'en'];
@@ -106,6 +109,33 @@ export function sanitize(raw) {
     if (done) rec.done = done;
     st.labs[id] = rec;
   }
+  // Wellbeing is a clock and a count, not a diary: no activity names, no timestamps of what
+  // was done, only seconds of active use today and how many breaks were taken.
+  if (obj(raw.wellbeing)) {
+    const w = raw.wellbeing, layers = {};
+    for (const id of KOSHA_IDS) layers[id] = int(w.layers && w.layers[id], 0, 1e6, 0);
+    st.wellbeing = {
+      day: date(w.day), activeMs: int(w.activeMs, 0, MAX_ACTIVE_MS, 0),
+      limitMin: LIMIT_CHOICES.includes(w.limitMin) ? w.limitMin : DEFAULT_LIMIT_MIN,
+      breaks: int(w.breaks, 0, 1e6, 0), breaksToday: int(w.breaksToday, 0, 1e4, 0),
+      lastBreak: date(w.lastBreak), lastTick: 0, layers,
+    };
+  }
+  // One chosen quest a day; the total survives so badges can see real effort over time.
+  if (obj(raw.quests)) {
+    const q = raw.quests, id = QUEST_IDS.includes(q.id) ? q.id : null;
+    st.quests = { day: date(q.day), id, done: !!id && q.done === true, total: int(q.total, 0, 1e6, 0) };
+  }
+  // Moral stories: completion and reflection counts only. The choices are never stored.
+  if (obj(raw.stories)) for (const id of Object.keys(raw.stories).slice(0, 40)) {
+    if (!STORY_ID.test(id) || !storyById(id)) continue;
+    const v = raw.stories[id]; if (!obj(v)) continue;
+    const rec = { reflections: int(v.reflections, 0, 1e5, 0) };
+    const seen = date(v.seen), done = date(v.done);
+    if (seen) rec.seen = seen;
+    if (done) rec.done = done;
+    st.stories[id] = rec;
+  }
   if (obj(raw.lock)) st.lock = { f: int(raw.lock.f, 0, 1000, 0), until: int(raw.lock.until, 0, 8.64e15, 0) };
   return st;
 }
@@ -121,8 +151,11 @@ export function load(storage) {
   try { storage.setItem(STORE_KEY + '.damaged', text.slice(0, MAX_IMPORT_BYTES)); } catch { /* best effort */ }
   return { state: freshState(), recovered: true };
 }
+// The heartbeat clock is a live-session detail. It is deliberately written as zero, so no
+// sub-day timestamp is ever stored or exported — only the day-level counters are.
+const withoutClock = state => (state && state.wellbeing ? { ...state, wellbeing: { ...state.wellbeing, lastTick: 0 } } : state);
 export function save(storage, state) {
-  try { storage.setItem(STORE_KEY, JSON.stringify(state)); return true; } catch { return false; }
+  try { storage.setItem(STORE_KEY, JSON.stringify(withoutClock(state))); return true; } catch { return false; }
 }
 // One-step undo for destructive actions (restore, erase): keeps the previous document.
 export function keepUndo(storage) {
@@ -132,7 +165,7 @@ export function readUndo(storage) {
   try { return sanitize(JSON.parse(storage.getItem(STORE_KEY + '.undo'))); } catch { return null; }
 }
 
-export const exportText = state => JSON.stringify({ app: 'ks-learn', v: VERSION, exported: new Date().toISOString(), state: { ...state, lock: { f: 0, until: 0 } } });
+export const exportText = state => JSON.stringify({ app: 'ks-learn', v: VERSION, exported: new Date().toISOString(), state: { ...withoutClock(state), lock: { f: 0, until: 0 } } });
 const NOT = 'This is not a KS-LEARN backup.';
 export function importText(text) {
   if (typeof text !== 'string' || text.length > MAX_IMPORT_BYTES) throw new Error(typeof text === 'string' ? 'This file is too large to be a KS-LEARN backup.' : NOT);
