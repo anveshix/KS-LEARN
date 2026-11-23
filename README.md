@@ -27,7 +27,7 @@ and a device-local guardian account (no email, no cloud) gate the privacy action
 | `index.html` | App entry point |
 | `src/core/` | Account, consent, mastery model (BKT), guidance, i18n and audit |
 | `src/content/` | Question banks, stories and lab definitions (Hindi and English) |
-| `src/` (other) | Learning, coach, wellbeing and curiosity-lab modules |
+| `src/ui/` | Screens for learning, labs, quests and wellbeing |
 | `assets/` | Icons, logos and social cards |
 | `brand/` | Brand board (open in a browser) |
 | `docs/` | Architecture, audit, content, privacy, security and learning-model notes |
