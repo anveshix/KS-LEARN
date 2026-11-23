@@ -50,7 +50,7 @@ See [CONTRIBUTING.md](CONTRIBUTING.md). Report security or child-data concerns p
 
 ## License
 
-[MIT](LICENSE) © 2026 anveshix
+No licence has been chosen for this repository yet. Until one is added, the default applies: **all rights reserved** by the author (anveshix). Please ask before reusing or redistributing the code.
 
 ## Author
 
